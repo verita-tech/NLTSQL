@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>nltsql</AssemblyName>
+    <RootNamespace>NLTSQL.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NLTSQL.Semantics\NLTSQL.Semantics.csproj" />
+    <ProjectReference Include="..\NLTSQL.Scaffolding\NLTSQL.Scaffolding.csproj" />
+    <ProjectReference Include="..\NLTSQL.QueryEngine\NLTSQL.QueryEngine.csproj" />
+    <ProjectReference Include="..\NLTSQL.Ai\NLTSQL.Ai.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,69 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="ASP.NET Core / EF Core">
+    <PackageVersion Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.10" />
+  </ItemGroup>
+
+  <!--
+    EF Core 10 still resolves SQLitePCLRaw 2.1.11, which bundles a SQLite older than
+    3.50.2 and is therefore covered by CVE-2025-6965 (GHSA-2m69-gcr7-jv3q, memory
+    corruption when aggregate terms exceed available columns). Transitive pinning
+    lifts the whole SQLitePCLRaw graph to 2.1.13, which ships a patched SQLite.
+    SqliteVersionTests asserts the runtime version so this pin cannot silently regress.
+  -->
+  <ItemGroup Label="Security pin">
+    <PackageVersion Include="SQLitePCLRaw.core" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.13" />
+  </ItemGroup>
+
+  <ItemGroup Label="UI">
+    <PackageVersion Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.14.4" />
+    <PackageVersion Include="Microsoft.FluentUI.AspNetCore.Components.Icons" Version="4.14.4" />
+    <PackageVersion Include="Blazor-ApexCharts" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="AI">
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.30" />
+  </ItemGroup>
+
+  <ItemGroup Label="Target data sources (query targets only, never the app store)">
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.300" />
+  </ItemGroup>
+
+  <ItemGroup Label="Infrastructure">
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
+    <PackageVersion Include="CsvHelper" Version="33.1.0" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="Verify.Xunit" Version="31.12.5" />
+    <PackageVersion Include="bunit" Version="2.9.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers.Oracle" Version="4.14.0" />
+  </ItemGroup>
+
+</Project>

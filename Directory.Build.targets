@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    OllamaSharp ships a source generator for its [OllamaTool] function-calling bindings
+    that is compiled against a newer Roslyn than several .NET 10 SDK builds carry, which
+    hard-fails the build with CS9057. We drive the model through structured output rather
+    than OllamaSharp's tool generator, so the generator produces nothing we consume.
+
+    The analyzer flows transitively to every project that references NLTSQL.Ai, so the
+    removal has to be solution-wide rather than local to that project.
+    ExcludeAssets="analyzers" on the PackageReference does not cover this case.
+  -->
+  <Target Name="RemoveOllamaSharpSourceGenerator" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer)" Condition="'%(Filename)' == 'OllamaSharp.SourceGenerators'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

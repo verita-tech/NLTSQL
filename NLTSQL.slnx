@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NLTSQL.Ai/NLTSQL.Ai.csproj" />
+    <Project Path="src/NLTSQL.Cli/NLTSQL.Cli.csproj" />
+    <Project Path="src/NLTSQL.Core/NLTSQL.Core.csproj" />
+    <Project Path="src/NLTSQL.Data/NLTSQL.Data.csproj" />
+    <Project Path="src/NLTSQL.QueryEngine/NLTSQL.QueryEngine.csproj" />
+    <Project Path="src/NLTSQL.Scaffolding/NLTSQL.Scaffolding.csproj" />
+    <Project Path="src/NLTSQL.Semantics/NLTSQL.Semantics.csproj" />
+    <Project Path="src/NLTSQL.Web/NLTSQL.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NLTSQL.Ai.Evals/NLTSQL.Ai.Evals.csproj" />
+    <Project Path="tests/NLTSQL.Data.Tests/NLTSQL.Data.Tests.csproj" />
+    <Project Path="tests/NLTSQL.QueryEngine.Tests/NLTSQL.QueryEngine.Tests.csproj" />
+    <Project Path="tests/NLTSQL.Semantics.Tests/NLTSQL.Semantics.Tests.csproj" />
+    <Project Path="tests/NLTSQL.Web.Tests/NLTSQL.Web.Tests.csproj" />
+  </Folder>
+</Solution>

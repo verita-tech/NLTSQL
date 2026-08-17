@@ -1,0 +1,67 @@
+# Local development stack.
+#
+# These are the *target* databases NLTSQL queries, plus the local model runtime.
+# The application's own store is SQLite and lives on disk, not in this stack.
+#
+#   docker compose up -d
+#   docker compose exec ollama ollama pull qwen3:14b
+#   docker compose exec ollama ollama pull nomic-embed-text
+#
+# Credentials here are development-only and deliberately committed. Nothing in this
+# file is intended to run outside a developer machine or CI.
+
+name: nltsql
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: nltsql_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: devonly
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nltsql_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  oracle:
+    # The "faststart" variant boots a pre-created database in well under a minute,
+    # which matters because Oracle is otherwise slow enough to derail a test run.
+    image: gvenzl/oracle-free:23-slim-faststart
+    environment:
+      ORACLE_PASSWORD: devonly
+      APP_USER: nltsql_demo
+      APP_USER_PASSWORD: devonly
+    ports:
+      - "51521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - ./deploy/oracle/init:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data:
+  oracle-data:
+  ollama-models:

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\NLTSQL.Core\NLTSQL.Core.csproj" />
+    <ProjectReference Include="..\NLTSQL.Semantics\NLTSQL.Semantics.csproj" />
+    <ProjectReference Include="..\NLTSQL.QueryEngine\NLTSQL.QueryEngine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+  </ItemGroup>
+
+</Project>
