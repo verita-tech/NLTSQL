@@ -11,6 +11,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NLTSQL.Ai.Evals/NLTSQL.Ai.Evals.csproj" />
+    <Project Path="tests/NLTSQL.Ai.Tests/NLTSQL.Ai.Tests.csproj" />
     <Project Path="tests/NLTSQL.Core.Tests/NLTSQL.Core.Tests.csproj" />
     <Project Path="tests/NLTSQL.Data.Tests/NLTSQL.Data.Tests.csproj" />
     <Project Path="tests/NLTSQL.QueryEngine.Tests/NLTSQL.QueryEngine.Tests.csproj" />
