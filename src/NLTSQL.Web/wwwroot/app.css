@@ -105,3 +105,36 @@ fluent-data-grid-cell,
 footer {
     padding: 12px 32px;
 }
+
+/* Dashboard layout. Tiles are full width and stacked rather than tiled into a grid: a chart
+   squeezed into a third of the page stops being readable, which defeats the point of pinning it. */
+.dashboard-tile {
+    background: var(--neutral-layer-1);
+    border: 1px solid var(--neutral-stroke-divider-rest);
+    border-radius: calc(var(--control-corner-radius) * 1px);
+    padding: 16px 20px 20px;
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+.tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    width: 100%;
+}
+
+.dashboard-card {
+    background: var(--neutral-layer-1);
+    border: 1px solid var(--neutral-stroke-divider-rest);
+    border-radius: calc(var(--control-corner-radius) * 1px);
+    padding: 16px 20px;
+}
+
+.save-panel {
+    background: var(--neutral-layer-2);
+    border: 1px solid var(--neutral-stroke-divider-rest);
+    border-radius: calc(var(--control-corner-radius) * 1px);
+    padding: 20px;
+    max-width: 640px;
+}

@@ -1,0 +1,209 @@
+@page "/dashboards/{DashboardId:guid}"
+@using NLTSQL.Ai
+@using NLTSQL.Core.Charting
+@using NLTSQL.Core.Query
+@using NLTSQL.Core.Serialization
+@using NLTSQL.Data
+@using NLTSQL.Data.Entities
+@using NLTSQL.QueryEngine.Execution
+@using NLTSQL.Web.Charting
+@inject DashboardStore Store
+@inject SpecRunner Runner
+@inject ILogger<DashboardView> Logger
+@rendermode InteractiveServer
+
+<PageTitle>@(this.dashboard?.Title ?? "Dashboard") — NLTSQL</PageTitle>
+
+@if (this.dashboard is null)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" HorizontalGap="12">
+            <FluentLabel Typo="Typography.PageTitle">@this.dashboard.Title</FluentLabel>
+            <FluentSpacer />
+            <FluentButton Appearance="Appearance.Outline" OnClick="this.ReloadAsync" Disabled="@this.busy">Aktualisieren</FluentButton>
+            <FluentAnchor Appearance="Appearance.Stealth" Href="/dashboards">Alle Dashboards</FluentAnchor>
+        </FluentStack>
+
+        @if (this.dashboard.Tiles.Count == 0)
+        {
+            <FluentMessageBar Intent="MessageIntent.Info" AllowDismiss="false">
+                Dieses Dashboard ist leer. Stelle auf der Seite <a href="/">Fragen</a> eine Frage und speichere sie hierher.
+            </FluentMessageBar>
+        }
+
+        @foreach (var tile in this.dashboard.Tiles.OrderBy(t => t.Position))
+        {
+            var state = this.tiles.GetValueOrDefault(tile.Id);
+
+            <div class="dashboard-tile">
+                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" HorizontalGap="8">
+                    <FluentLabel Typo="Typography.H5">@tile.SavedQuery?.Title</FluentLabel>
+                    <FluentSpacer />
+                    @if (tile.Mode is TileMode.Snapshot)
+                    {
+                        @* A frozen tile always says so and always shows its date. A stale figure
+                           that looks current is the single worst thing a dashboard can do. *@
+                        <FluentBadge Appearance="Appearance.Neutral">
+                            Eingefroren am @(tile.SnapshotTakenAt is { } taken ? AsLocal(taken).ToString("dd.MM.yyyy HH:mm", CultureInfo.GetCultureInfo("de-DE")) : "")
+                        </FluentBadge>
+                    }
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => this.RemoveAsync(tile.Id))" Disabled="@this.busy">
+                        Entfernen
+                    </FluentButton>
+                </FluentStack>
+
+                <span class="muted">@tile.SavedQuery?.Question</span>
+
+                @if (state is null)
+                {
+                    <FluentProgressRing />
+                }
+                else if (state.Error is { Length: > 0 } error)
+                {
+                    <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">@error</FluentMessageBar>
+                }
+                else if (state.Result is { } result)
+                {
+                    @if (state.Chart is { Kind: ChartKind.Kpi } kpi)
+                    {
+                        <div class="kpi-card">
+                            <div class="kpi-value">@KpiValue(result, kpi)</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <ResultChart Chart="@state.Chart" Result="@result" />
+                    }
+
+                    <ResultTable Result="@result" />
+                }
+            </div>
+        }
+    </FluentStack>
+}
+
+@code {
+    /// <summary>The dashboard to show.</summary>
+    [Parameter]
+    public Guid DashboardId { get; set; }
+
+    /// <summary>Marks a stored timestamp as UTC before converting it for display.</summary>
+    /// <remarks>SQLite has no time zone, so EF returns Unspecified and ToLocalTime would shift twice.</remarks>
+    private static DateTime AsLocal(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime();
+
+    private Dashboard? dashboard;
+    private readonly Dictionary<Guid, TileState> tiles = [];
+    private bool busy;
+
+    /// <inheritdoc/>
+    protected override async Task OnParametersSetAsync() => await this.ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        this.busy = true;
+        this.tiles.Clear();
+
+        try
+        {
+            this.dashboard = await Store.GetDashboardAsync(this.DashboardId);
+
+            if (this.dashboard is null)
+            {
+                return;
+            }
+
+            // Tiles are run one after another rather than in parallel. A dashboard with ten tiles
+            // firing ten simultaneous queries at a customer's production database is exactly the
+            // load pattern that gets a self-service tool banned.
+            foreach (var tile in this.dashboard.Tiles.OrderBy(t => t.Position))
+            {
+                this.tiles[tile.Id] = await this.LoadTileAsync(tile);
+                this.StateHasChanged();
+            }
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    private async Task<TileState> LoadTileAsync(DashboardTile tile)
+    {
+        if (tile.SavedQuery is not { } saved)
+        {
+            return new TileState(null, null, "Die gespeicherte Abfrage fehlt.");
+        }
+
+        try
+        {
+            if (tile.Mode is TileMode.Snapshot)
+            {
+                var snapshot = tile.SnapshotJson is { Length: > 0 } json
+                    ? NltsqlJson.Deserialize<TileSnapshot>(json)
+                    : null;
+
+                return snapshot is null
+                    ? new TileState(null, null, "Das eingefrorene Ergebnis liess sich nicht lesen.")
+                    : Build(snapshot.ToResult(), saved);
+            }
+
+            var spec = NltsqlJson.Deserialize<QuerySpec>(saved.QuerySpecJson);
+            if (spec is null)
+            {
+                return new TileState(null, null, "Die gespeicherte Abfrage liess sich nicht lesen.");
+            }
+
+            var run = await Runner.RunAsync(spec, saved.ModelName);
+
+            // The spec is re-resolved against the current model, so a measure removed since the
+            // tile was saved shows up here as a readable message rather than as a database error.
+            return run.Success
+                ? Build(run.Result!, saved)
+                : new TileState(null, null, string.Join(" ", run.Issues.Select(i => i.Message)));
+        }
+        catch (InvalidOperationException exception)
+        {
+            Logger.LogError(exception, "Loading dashboard tile {TileId} failed.", tile.Id);
+            return new TileState(null, null, exception.Message);
+        }
+    }
+
+    private static TileState Build(QueryResult result, SavedQuery saved)
+    {
+        // The presentation is recomputed rather than read from the tile: a live tile whose data has
+        // grown from four categories to four hundred should stop being a bar chart.
+        var chart = ChartAdvisor.Choose(
+            [.. result.Columns.Select(c => new ChartColumn(c.Alias, c.Kind is QueryEngine.Sql.ResultColumnKind.Grouping, c.Grain))],
+            result.RowCount);
+
+        return new TileState(result, chart, null);
+    }
+
+    private static string KpiValue(QueryResult result, ChartSpec chart)
+    {
+        var column = result.Columns.First(c => c.Alias == chart.ValueColumns[0]);
+        var index = result.Columns.ToList().FindIndex(c => c.Alias == column.Alias);
+        return ResultFormatter.Format(result.Rows[0][index], column);
+    }
+
+    private async Task RemoveAsync(Guid tileId)
+    {
+        this.busy = true;
+
+        try
+        {
+            await Store.RemoveTileAsync(tileId);
+            await this.ReloadAsync();
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    private sealed record TileState(QueryResult? Result, ChartSpec? Chart, string? Error);
+}

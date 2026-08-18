@@ -68,6 +68,7 @@ public static class AiServiceCollectionExtensions
         }).UseLogging();
 
         services.AddSingleton<QueryPlanner>();
+        services.AddSingleton<SpecRunner>();
         services.AddSingleton<AskService>();
 
         return services;

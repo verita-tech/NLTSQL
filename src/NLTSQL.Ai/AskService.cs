@@ -45,9 +45,7 @@ public sealed record AskResult(
 public sealed class AskService(
     QueryPlanner planner,
     ISemanticModelRegistry models,
-    IDataSourceRegistry dataSources,
-    IQueryContextProvider contextProvider,
-    IQueryExecutor executor,
+    SpecRunner runner,
     ILogger<AskService> logger)
 {
     /// <summary>Answers <paramref name="question"/> against the named semantic model.</summary>
@@ -67,18 +65,20 @@ public sealed class AskService(
             return new AskResult(question, model.Name, model.Version, plan.Spec, null, null, null, plan.Issues, plan.Attempts);
         }
 
-        var query = plan.Query!;
-        var source = dataSources.Resolve(model.DataSource);
-        var compiled = new SqlCompiler(source.Dialect).Compile(query, contextProvider.Current);
+        // Execution goes through the same path a dashboard tile takes, so a saved tile cannot
+        // diverge from the answer that was originally shown.
+        var run = await runner.RunAsync(plan.Spec!, model.Name, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var result = await executor
-            .ExecuteAsync(compiled, model.DataSource, query.Limit, cancellationToken)
-            .ConfigureAwait(false);
+        if (!run.Success)
+        {
+            return new AskResult(question, model.Name, model.Version, plan.Spec, run.Sql, null, null, run.Issues, plan.Attempts);
+        }
 
+        var result = run.Result!;
         logger.QueryAnswered(model.Name, plan.Attempts, result.RowCount, result.Duration.TotalMilliseconds);
 
         var chart = ChartAdvisor.Choose(
-            [.. compiled.Columns.Select(c => new ChartColumn(c.Alias, c.Kind is ResultColumnKind.Grouping, c.Grain))],
+            [.. result.Columns.Select(c => new ChartColumn(c.Alias, c.Kind is ResultColumnKind.Grouping, c.Grain))],
             result.RowCount);
 
         return new AskResult(
@@ -86,7 +86,7 @@ public sealed class AskService(
             model.Name,
             model.Version,
             plan.Spec,
-            compiled.Sql,
+            run.Sql,
             result,
             chart,
             [],

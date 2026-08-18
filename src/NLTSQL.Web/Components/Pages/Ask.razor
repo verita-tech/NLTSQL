@@ -4,8 +4,14 @@
 @using NLTSQL.QueryEngine.Sql
 @using NLTSQL.Semantics
 @using NLTSQL.Semantics.Validation
+@using NLTSQL.Core.Serialization
+@using Microsoft.EntityFrameworkCore
+@using NLTSQL.Data
+@using NLTSQL.Data.Entities
 @using NLTSQL.Web.Charting
 @inject AskService AskService
+@inject DashboardStore Store
+@inject AuthenticationStateProvider AuthState
 @inject ISemanticModelRegistry Models
 @inject ILogger<Ask> Logger
 @rendermode InteractiveServer
@@ -93,6 +99,62 @@
 
                 <ResultTable Result="@this.result.Result" />
 
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center">
+                    <FluentButton Appearance="Appearance.Outline" OnClick="@(() => this.saving = true)">
+                        Auf Dashboard speichern
+                    </FluentButton>
+                    @if (this.runId is { } id)
+                    {
+                        <FluentAnchor Appearance="Appearance.Outline" Href="@($"/export/{id}.csv")" Target="_self">
+                            Als CSV herunterladen
+                        </FluentAnchor>
+                    }
+                </FluentStack>
+
+                @if (this.saving)
+                {
+                    <div class="save-panel">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                            <FluentLabel Typo="Typography.Subject">Auf Dashboard speichern</FluentLabel>
+
+                            <FluentTextField @bind-Value="this.tileTitle" Label="Titel der Kachel" Style="width: 100%;" />
+
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12" VerticalAlignment="VerticalAlignment.Bottom">
+                                <FluentSelect TOption="Dashboard"
+                                              Items="@this.dashboards"
+                                              OptionText="@(d => d.Title)"
+                                              OptionValue="@(d => d.Id.ToString())"
+                                              @bind-SelectedOption="this.selectedDashboard"
+                                              Label="Dashboard" />
+                                <FluentTextField @bind-Value="this.newDashboardTitle" Label="oder neues anlegen" />
+                            </FluentStack>
+
+                            @* Live is the default because a dashboard whose tiles hold last month's
+                               numbers is worse than no dashboard — it looks current. A snapshot is
+                               for the case where a figure was quoted somewhere and has to keep
+                               saying what it said. *@
+                            <FluentRadioGroup @bind-Value="this.tileMode" Label="Aktualisierung">
+                                <FluentRadio Value="@TileMode.Live">Bei jedem Öffnen neu berechnen</FluentRadio>
+                                <FluentRadio Value="@TileMode.Snapshot">Dieses Ergebnis einfrieren</FluentRadio>
+                            </FluentRadioGroup>
+
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                <FluentButton Appearance="Appearance.Accent" OnClick="this.SaveTileAsync" Disabled="@this.savingBusy">
+                                    Speichern
+                                </FluentButton>
+                                <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => this.saving = false)">
+                                    Abbrechen
+                                </FluentButton>
+                            </FluentStack>
+
+                            @if (this.saveError is { Length: > 0 } saveError)
+                            {
+                                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@saveError</FluentMessageBar>
+                            }
+                        </FluentStack>
+                    </div>
+                }
+
                 <FluentLabel Typo="Typography.Body" Color="Color.Disabled">
                     @this.result.Result!.RowCount.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) Zeile(n)
                     in @this.result.Result.Duration.TotalMilliseconds.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) ms
@@ -151,11 +213,33 @@
     private bool running;
     private AskResult? result;
 
+    private Guid? runId;
+    private string? userId;
+    private bool saving;
+    private bool savingBusy;
+    private string? saveError;
+    private string tileTitle = string.Empty;
+    private string newDashboardTitle = string.Empty;
+    private List<Dashboard> dashboards = [];
+    private Dashboard? selectedDashboard;
+    private TileMode tileMode = TileMode.Live;
+
     /// <inheritdoc/>
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         this.modelNames = [.. Models.Names.Order(StringComparer.Ordinal)];
         this.selectedModel = this.modelNames.FirstOrDefault() ?? string.Empty;
+
+        var state = await AuthState.GetAuthenticationStateAsync();
+        this.userId = state.User.Identity?.Name;
+
+        await this.LoadDashboardsAsync();
+    }
+
+    private async Task LoadDashboardsAsync()
+    {
+        this.dashboards = [.. await Store.ListDashboardsAsync()];
+        this.selectedDashboard ??= this.dashboards.FirstOrDefault();
     }
 
     private async Task OnKeyDown(KeyboardEventArgs args)
@@ -177,6 +261,9 @@
 
         this.running = true;
         this.result = null;
+        this.runId = null;
+        this.saving = false;
+        this.saveError = null;
 
         try
         {
@@ -202,6 +289,107 @@
         finally
         {
             this.running = false;
+        }
+
+        await this.RecordRunAsync();
+    }
+
+    /// <summary>
+    /// Records what happened, successful or not.
+    /// </summary>
+    /// <remarks>
+    /// Failures are recorded too: a run of questions the platform could not answer is the most
+    /// direct signal of what the semantic model is missing, and it is lost entirely if only
+    /// successes are kept. The record's id doubles as the CSV export handle, so an exported file is
+    /// always traceable to a question somebody actually asked.
+    /// </remarks>
+    private async Task RecordRunAsync()
+    {
+        if (this.result is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var run = await Store.RecordRunAsync(new QueryRun
+            {
+                UserId = this.userId,
+                ModelName = this.result.ModelName,
+                Question = this.result.Question,
+                QuerySpecJson = this.result.Spec is null ? null : NltsqlJson.Serialize(this.result.Spec),
+                Sql = this.result.Sql,
+                RowCount = this.result.Result?.RowCount,
+                DurationMs = this.result.Result?.Duration.TotalMilliseconds ?? 0,
+                Attempts = this.result.Attempts,
+                Success = this.result.Success,
+                Error = this.result.Issues.Count == 0
+                    ? null
+                    : string.Join(" ", this.result.Issues.Select(i => i.Message)),
+            });
+
+            this.runId = this.result.Success ? run.Id : null;
+            this.tileTitle = this.result.Question;
+        }
+        catch (DbUpdateException exception)
+        {
+            // Audit is not worth losing an answer over: the user has their result on screen, and
+            // the export link simply does not appear.
+            Logger.LogError(exception, "Recording the query run failed.");
+        }
+    }
+
+    private async Task SaveTileAsync()
+    {
+        if (this.result?.Spec is null || this.savingBusy)
+        {
+            return;
+        }
+
+        this.savingBusy = true;
+        this.saveError = null;
+
+        try
+        {
+            var target = this.newDashboardTitle is { Length: > 0 } title
+                ? await Store.CreateDashboardAsync(title.Trim(), this.userId)
+                : this.selectedDashboard;
+
+            if (target is null)
+            {
+                this.saveError = "Waehle ein Dashboard aus oder gib einen Namen fuer ein neues an.";
+                return;
+            }
+
+            var query = new SavedQuery
+            {
+                Title = string.IsNullOrWhiteSpace(this.tileTitle) ? this.result.Question : this.tileTitle.Trim(),
+                Question = this.result.Question,
+                ModelName = this.result.ModelName,
+                ModelVersion = this.result.ModelVersion,
+                QuerySpecJson = NltsqlJson.Serialize(this.result.Spec),
+                ChartSpecJson = this.result.Chart is null ? null : NltsqlJson.Serialize(this.result.Chart),
+                CreatedBy = this.userId,
+            };
+
+            var snapshot = this.tileMode is TileMode.Snapshot
+                ? NltsqlJson.Serialize(TileSnapshot.From(this.result.Result!))
+                : null;
+
+            await Store.AddTileAsync(target.Id, query, this.tileMode, snapshot);
+
+            this.newDashboardTitle = string.Empty;
+            this.saving = false;
+            await this.LoadDashboardsAsync();
+        }
+        catch (DbUpdateException exception)
+        {
+            Logger.LogError(exception, "Saving a dashboard tile failed.");
+            this.saveError = "Die Kachel konnte nicht gespeichert werden.";
+        }
+        finally
+        {
+            this.savingBusy = false;
         }
     }
 

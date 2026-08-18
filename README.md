@@ -63,6 +63,18 @@ fragen:
 Unter **Datenmodell** steht, was überhaupt gefragt werden kann — dieselben Namen, die auch das
 Sprachmodell sieht.
 
+### Ergebnisse behalten
+
+Unter jeder Antwort stehen zwei Aktionen:
+
+- **Auf Dashboard speichern** — legt die Abfrage als Kachel ab. *Bei jedem Öffnen neu berechnen*
+  ist die Voreinstellung; *einfrieren* hält das Ergebnis fest und zeigt immer sein Datum dazu.
+- **Als CSV herunterladen** — führt die Abfrage erneut aus und liefert die Datei gestreamt.
+  Semikolon und UTF-8-BOM, damit Excel in deutscher Einstellung sie ohne Nacharbeit öffnet.
+
+Gespeichert wird stets die **Abfrage**, nicht die Antwort. Ein Dashboard mit Zahlen vom letzten
+Monat ist schlimmer als keins, weil es aktuell aussieht.
+
 ### Was der Prototyp noch nicht kann
 
 - **Keine Joins.** Fragen bleiben innerhalb einer Entität. „Umsatz pro Monat" geht, „Umsatz nach

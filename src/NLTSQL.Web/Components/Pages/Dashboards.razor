@@ -1,0 +1,109 @@
+@page "/dashboards"
+@using Microsoft.EntityFrameworkCore
+@using NLTSQL.Data
+@using NLTSQL.Data.Entities
+@inject DashboardStore Store
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Dashboards — NLTSQL</PageTitle>
+
+<FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+    <FluentLabel Typo="Typography.PageTitle">Dashboards</FluentLabel>
+
+    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12" VerticalAlignment="VerticalAlignment.Bottom">
+        <FluentTextField @bind-Value="this.newTitle" Label="Neues Dashboard" Placeholder="z. B. Vertrieb wöchentlich" />
+        <FluentButton Appearance="Appearance.Accent"
+                      OnClick="this.CreateAsync"
+                      Disabled="@(this.busy || string.IsNullOrWhiteSpace(this.newTitle))">
+            Anlegen
+        </FluentButton>
+    </FluentStack>
+
+    @if (this.dashboards.Count == 0)
+    {
+        <FluentMessageBar Intent="MessageIntent.Info" AllowDismiss="false">
+            Noch kein Dashboard. Stelle auf der Seite <a href="/">Fragen</a> eine Frage und speichere das Ergebnis als Kachel.
+        </FluentMessageBar>
+    }
+    else
+    {
+        <div class="tile-grid">
+            @foreach (var dashboard in this.dashboards)
+            {
+                <div class="dashboard-card">
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                        <FluentLabel Typo="Typography.H5">@dashboard.Title</FluentLabel>
+                        <span class="muted">Angelegt @AsLocal(dashboard.CreatedAt).ToString("dd.MM.yyyy", CultureInfo.GetCultureInfo("de-DE"))</span>
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                            <FluentAnchor Appearance="Appearance.Accent" Href="@($"/dashboards/{dashboard.Id}")">Öffnen</FluentAnchor>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => this.DeleteAsync(dashboard.Id))" Disabled="@this.busy">
+                                Löschen
+                            </FluentButton>
+                        </FluentStack>
+                    </FluentStack>
+                </div>
+            }
+        </div>
+    }
+</FluentStack>
+
+@code {
+    /// <summary>
+    /// Marks a stored timestamp as UTC before converting it for display.
+    /// </summary>
+    /// <remarks>
+    /// SQLite has no time zone, so EF hands the value back with <see cref="DateTimeKind.Unspecified"/>.
+    /// Calling ToLocalTime on that treats it as already-local and shifts it a second time.
+    /// </remarks>
+    private static DateTime AsLocal(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime();
+
+    private List<Dashboard> dashboards = [];
+    private string newTitle = string.Empty;
+    private bool busy;
+
+    /// <inheritdoc/>
+    protected override async Task OnInitializedAsync() => await this.LoadAsync();
+
+    private async Task LoadAsync() => this.dashboards = [.. await Store.ListDashboardsAsync()];
+
+    private async Task CreateAsync()
+    {
+        if (this.busy || string.IsNullOrWhiteSpace(this.newTitle))
+        {
+            return;
+        }
+
+        this.busy = true;
+
+        try
+        {
+            var state = await AuthState.GetAuthenticationStateAsync();
+            await Store.CreateDashboardAsync(this.newTitle.Trim(), state.User.Identity?.Name);
+            this.newTitle = string.Empty;
+            await this.LoadAsync();
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        this.busy = true;
+
+        try
+        {
+            // Tiles go with the dashboard; the saved queries they pointed at survive, because the
+            // work of phrasing a question is worth more than the placement of a tile.
+            await Store.DeleteDashboardAsync(id);
+            await this.LoadAsync();
+        }
+        finally
+        {
+            this.busy = false;
+        }
+    }
+}

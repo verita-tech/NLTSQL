@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.FluentUI.AspNetCore.Components;
 using NLTSQL.Ai;
+using NLTSQL.Data;
+using NLTSQL.Web;
+using NLTSQL.Web.Endpoints;
 using NLTSQL.Web.Components;
 using NLTSQL.Web.Components.Account;
 using NLTSQL.Web.Data;
@@ -25,8 +28,25 @@ builder.Services.AddAuthentication(options =>
     .AddIdentityCookies();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlite(connectionString));
+// SQLite serialises writers. Without write-ahead logging a single dashboard save blocks every
+// reader on the file, which on a page that opens several tiles at once is immediately visible.
+// The busy timeout turns the remaining brief contention into a short wait instead of an error.
+builder.Services.AddSingleton<SqliteConfigurator>();
+
+// Only the factory is registered. AddDbContext would additionally register DbContextOptions as
+// scoped, which a singleton factory cannot consume — the two together fail at startup.
+//
+// Identity wants a scoped context, so that one is produced from the same factory. Everything else
+// takes a context per operation, because a Blazor Server scope lives as long as the browser tab:
+// a scoped context would accumulate tracked entities and be shared by overlapping component work.
+builder.Services.AddDbContextFactory<ApplicationDbContext>(options => options.UseSqlite(connectionString));
+builder.Services.AddScoped(provider =>
+    provider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContext());
+builder.Services.AddSingleton<INltsqlDataContextFactory, NltsqlDataContextFactory>();
+builder.Services.AddSingleton<DashboardStore>();
+
+builder.Services.AddOptions<NLTSQL.Web.Endpoints.CsvExportOptions>()
+    .BindConfiguration(NLTSQL.Web.Endpoints.CsvExportOptions.SectionName);
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
@@ -60,6 +80,8 @@ builder.Services.PostConfigure<NLTSQL.Semantics.SemanticModelOptions>(options =>
 
 var app = builder.Build();
 
+await app.Services.GetRequiredService<SqliteConfigurator>().ApplyAsync(app.Services);
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -82,5 +104,7 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+app.MapCsvExport();
 
 app.Run();
