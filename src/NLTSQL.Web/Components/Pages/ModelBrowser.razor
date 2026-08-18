@@ -1,0 +1,113 @@
+@page "/modell"
+@using NLTSQL.Semantics
+@using NLTSQL.Semantics.Model
+@inject ISemanticModelRegistry Models
+
+<PageTitle>Datenmodell — NLTSQL</PageTitle>
+
+@*
+    What can I even ask? Without an answer to that, a natural-language interface is a guessing game:
+    people try two questions, get told the terms do not exist, and stop. This page is the answer,
+    and it deliberately shows the same names the planner sees.
+*@
+
+<FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+    <FluentLabel Typo="Typography.PageTitle">Datenmodell</FluentLabel>
+
+    @foreach (var name in Models.Names.Order(StringComparer.Ordinal))
+    {
+        var model = Models.GetModel(name);
+
+        <FluentLabel Typo="Typography.H4">@(model.Label ?? model.Name) <span class="muted">@($"v{model.Version}")</span></FluentLabel>
+
+        @if (!string.IsNullOrWhiteSpace(model.Description))
+        {
+            <FluentLabel Typo="Typography.Body">@model.Description</FluentLabel>
+        }
+
+        <FluentAccordion Style="width: 100%;">
+            @foreach (var entity in model.Entities.Where(e => !e.Hidden))
+            {
+                <FluentAccordionItem Heading="@($"{entity.Label} ({entity.Name})")">
+                    @if (!string.IsNullOrWhiteSpace(entity.Description))
+                    {
+                        <FluentLabel Typo="Typography.Body">@entity.Description</FluentLabel>
+                    }
+
+                    @{
+                        var measures = entity.Measures.Where(m => !m.Hidden).Cast<ModelElement>()
+                            .Concat(entity.Metrics.Where(m => !m.Hidden)).ToList();
+                        var fields = entity.Dimensions.Where(d => !d.Hidden).Cast<ModelElement>()
+                            .Concat(entity.TimeDimensions.Where(d => !d.Hidden)).ToList();
+                    }
+
+                    <FluentLabel Typo="Typography.Subject" Class="stack-gap">Kennzahlen</FluentLabel>
+                    <ul class="model-list">
+                        @foreach (var measure in measures)
+                        {
+                            <li>
+                                <strong>@measure.Label</strong> <code>@measure.Name</code>
+                                @if (measure.Status is ReviewStatus.Reviewed)
+                                {
+                                    <FluentBadge Appearance="Appearance.Accent">fachlich geprueft</FluentBadge>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(measure.Description))
+                                {
+                                    <div class="muted">@measure.Description</div>
+                                }
+                            </li>
+                        }
+                    </ul>
+
+                    <FluentLabel Typo="Typography.Subject" Class="stack-gap">Merkmale</FluentLabel>
+                    <ul class="model-list">
+                        @foreach (var field in fields)
+                        {
+                            <li>
+                                <strong>@field.Label</strong> <code>@field.Name</code>
+                                @if (field is Dimension { Values.Count: > 0 } dimension)
+                                {
+                                    <div class="muted">Werte: @string.Join(", ", dimension.Values)</div>
+                                }
+                                @if (field is TimeDimension time)
+                                {
+                                    <div class="muted">
+                                        Zeitstufen: @string.Join(", ", time.Granularities.Select(g => g.ToString().ToLowerInvariant()))
+                                    </div>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </FluentAccordionItem>
+            }
+        </FluentAccordion>
+
+        @if (model.Glossary.Count > 0)
+        {
+            <FluentLabel Typo="Typography.H5">Fachbegriffe</FluentLabel>
+            <ul class="model-list">
+                @foreach (var term in model.Glossary)
+                {
+                    <li><strong>@term.Term</strong> — @term.Definition</li>
+                }
+            </ul>
+        }
+    }
+
+    @if (Models.Issues.Count > 0)
+    {
+        <FluentAccordion Style="width: 100%;">
+            <FluentAccordionItem Heading="@($"Hinweise zur Modellpflege ({Models.Issues.Count})")">
+                @* Warnings are shown rather than swallowed: a measure without a description is one
+                   retrieval will struggle to find, and the person who can fix that is looking at
+                   this page. *@
+                <ul class="model-list">
+                    @foreach (var issue in Models.Issues)
+                    {
+                        <li><code>@issue.Path</code> — @issue.Message</li>
+                    }
+                </ul>
+            </FluentAccordionItem>
+        </FluentAccordion>
+    }
+</FluentStack>

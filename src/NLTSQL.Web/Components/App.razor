@@ -1,11 +1,12 @@
-﻿<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="de">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["NLTSQL.Web.styles.css"]" />
     <ImportMap />
@@ -15,6 +16,12 @@
 <body>
     <Routes @rendermode="PageRenderMode" />
     <ReconnectModal />
+    @* ApexCharts writes colours into SVG attributes from JavaScript, so the server has to know
+       which surface a chart will land on in order to pick the palette validated for it. This is
+       the whole of that mechanism. *@
+    <script>
+        window.nltsqlPrefersDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
+    </script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
 </body>

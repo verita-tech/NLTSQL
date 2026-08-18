@@ -1,0 +1,157 @@
+@using ApexCharts
+@using NLTSQL.Core.Charting
+@using NLTSQL.QueryEngine.Execution
+@using NLTSQL.QueryEngine.Sql
+@using NLTSQL.Web.Charting
+@implements IDisposable
+@inject IJSRuntime JS
+
+@*
+    One chart per measure, never several measures on one plot.
+
+    Two measures of different scale — revenue in euros and a count of orders — on one plot would
+    need two y-axes, and a dual-axis chart lets the reader infer a relationship from where the lines
+    happen to cross. Small multiples say the same thing without the false claim. It also means each
+    plot has a single series, so the title names it and no legend is needed.
+*@
+
+@if (Chart is null || Result is null || Chart.Kind is ChartKind.Table or ChartKind.Kpi)
+{
+    return;
+}
+
+<div class="chart-stack">
+    @foreach (var (alias, index) in Chart.ValueColumns.Select((a, i) => (a, i)))
+    {
+        var column = Result.Columns.First(c => c.Alias == alias);
+        var points = BuildPoints(alias);
+        var colour = ChartPalette.Series(index, this.dark);
+
+        <div class="chart-card">
+            <FluentLabel Typo="Typography.H5">@column.Label</FluentLabel>
+            <ApexChart @key="@($"{alias}-{this.dark}")"
+                       TItem="ChartPoint"
+                       Options="@BuildOptions(colour, column)"
+                       Height="280">
+                <ApexPointSeries TItem="ChartPoint"
+                                 Items="points"
+                                 Name="@column.Label"
+                                 SeriesType="@(Chart.Kind is ChartKind.Line ? SeriesType.Line : SeriesType.Bar)"
+                                 XValue="@(point => point.Category)"
+                                 YValue="@(point => point.Value)" />
+            </ApexChart>
+        </div>
+    }
+</div>
+
+@code {
+    private bool dark;
+    private bool themeResolved;
+
+    /// <summary>How to draw the result.</summary>
+    [Parameter]
+    public ChartSpec? Chart { get; set; }
+
+    /// <summary>The result to draw.</summary>
+    [Parameter]
+    public QueryResult? Result { get; set; }
+
+    /// <inheritdoc/>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || this.themeResolved)
+        {
+            return;
+        }
+
+        // ApexCharts writes colours into SVG attributes from JavaScript, so a CSS custom property
+        // never reaches them and the server has to know which surface the chart will land on.
+        // Asking the browser once is the only way to pick the palette that was validated for it —
+        // reusing the light steps on a dark surface would put several of them outside their band.
+        this.themeResolved = true;
+
+        try
+        {
+            this.dark = await JS.InvokeAsync<bool>("nltsqlPrefersDark");
+        }
+        catch (JSException)
+        {
+            // Falling back to the light palette is the safe default: it is the one validated
+            // against the surface the application shows unless the browser says otherwise.
+            this.dark = false;
+        }
+
+        this.StateHasChanged();
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        // ApexChart owns its own JS lifetime; nothing else to release.
+    }
+
+    private List<ChartPoint> BuildPoints(string alias)
+    {
+        var categoryColumn = this.Result!.Columns.FirstOrDefault(c => c.Alias == this.Chart!.CategoryColumn);
+        var categoryIndex = categoryColumn is null ? -1 : this.Result.Columns.ToList().FindIndex(c => c.Alias == categoryColumn.Alias);
+        var valueIndex = this.Result.Columns.ToList().FindIndex(c => c.Alias == alias);
+
+        return
+        [
+            .. this.Result.Rows.Select(row => new ChartPoint(
+                categoryIndex < 0
+                    ? string.Empty
+                    : ResultFormatter.FormatGrouping(row[categoryIndex], categoryColumn!.Grain),
+                ResultFormatter.ToNumber(row[valueIndex])))
+        ];
+    }
+
+    private ApexChartOptions<ChartPoint> BuildOptions(string colour, ResultColumn column) => new()
+    {
+        Chart = new Chart
+        {
+            Toolbar = new Toolbar { Show = false },
+            Background = "transparent",
+            FontFamily = "var(--body-font)",
+            Animations = new Animations { Enabled = false },
+        },
+        Theme = new Theme { Mode = this.dark ? Mode.Dark : Mode.Light },
+        Colors = [colour],
+        // Thin marks: a 2px line and an 8px marker read as data, a thick one reads as decoration.
+        Stroke = new Stroke { Width = 2, Curve = Curve.Straight },
+        Markers = new Markers { Size = this.Chart!.Kind is ChartKind.Line ? 4 : 0, StrokeWidth = 2 },
+        PlotOptions = new PlotOptions
+        {
+            Bar = new PlotOptionsBar { BorderRadius = 4, ColumnWidth = "55%" },
+        },
+        DataLabels = new DataLabels { Enabled = false },
+        Legend = new Legend { Show = false },
+        Grid = new Grid
+        {
+            BorderColor = ChartPalette.GridColor(this.dark),
+            // Only horizontal guides: vertical ones add ink without helping read a value off the axis.
+            Xaxis = new GridXAxis { Lines = new Lines { Show = false } },
+            Yaxis = new GridYAxis { Lines = new Lines { Show = true } },
+        },
+        Xaxis = new XAxis
+        {
+            Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = ChartPalette.ForeColor(this.dark) } },
+            AxisBorder = new AxisBorder { Color = ChartPalette.GridColor(this.dark) },
+            AxisTicks = new AxisTicks { Color = ChartPalette.GridColor(this.dark) },
+        },
+        Yaxis =
+        [
+            new YAxis
+            {
+                Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = ChartPalette.ForeColor(this.dark) } },
+                DecimalsInFloat = column.Format?.Decimals ?? 0,
+            },
+        ],
+        Tooltip = new Tooltip { Enabled = true, Theme = this.dark ? Mode.Dark : Mode.Light },
+    };
+
+    /// <summary>One plotted point.</summary>
+    /// <param name="Category">Axis label.</param>
+    /// <param name="Value">The measure's value, or null where the data has none.</param>
+    public sealed record ChartPoint(string Category, decimal? Value);
+}

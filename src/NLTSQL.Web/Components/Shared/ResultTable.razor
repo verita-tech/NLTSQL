@@ -1,0 +1,57 @@
+@using NLTSQL.QueryEngine.Execution
+@using NLTSQL.QueryEngine.Sql
+@using NLTSQL.Web.Charting
+
+@*
+    The table is always shown, next to any chart rather than behind a toggle.
+
+    Two reasons, and the second is not optional: a chart answers "what is the shape", a table
+    answers "what is the number", and people need both. And three colours of the light-mode palette
+    sit below 3:1 contrast against white, which the palette's own rules permit only where the values
+    are also legible as text. Hiding this table would break that.
+*@
+
+@if (Result is not null)
+{
+    <FluentDataGrid TGridItem="ResultRow"
+                    Items="@Rows"
+                    GridTemplateColumns="@GridTemplate"
+                    Style="width: 100%;">
+        @foreach (var entry in Columns)
+        {
+            <TemplateColumn TGridItem="ResultRow"
+                            Title="@entry.Column.Label"
+                            Align="@(entry.Column.Kind is ResultColumnKind.Grouping ? Align.Start : Align.End)">
+                @ResultFormatter.Format(context[entry.Index], entry.Column)
+            </TemplateColumn>
+        }
+    </FluentDataGrid>
+
+    @if (Result.Truncated)
+    {
+        <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Class="stack-gap">
+            Die Anzeige ist bei @Result.RowCount.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) Zeilen abgeschnitten.
+            Es kann mehr Daten geben — grenze die Frage weiter ein, bevor du die Zahlen weiterverwendest.
+        </FluentMessageBar>
+    }
+}
+
+@code {
+    /// <summary>The result to show.</summary>
+    [Parameter]
+    public QueryResult? Result { get; set; }
+
+    private IQueryable<ResultRow> Rows =>
+        (Result?.Rows ?? []).Select(row => new ResultRow(row)).AsQueryable();
+
+    private IEnumerable<(ResultColumn Column, int Index)> Columns =>
+        (Result?.Columns ?? []).Select((column, index) => (column, index));
+
+    private string GridTemplate =>
+        Result is null
+            ? "1fr"
+            : string.Join(
+                ' ',
+                Result.Columns.Select(c =>
+                    c.Kind is ResultColumnKind.Grouping ? "minmax(120px, 1.4fr)" : "minmax(100px, 1fr)"));
+}

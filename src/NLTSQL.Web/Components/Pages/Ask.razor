@@ -1,0 +1,222 @@
+@page "/"
+@using NLTSQL.Ai
+@using NLTSQL.Core.Charting
+@using NLTSQL.QueryEngine.Sql
+@using NLTSQL.Semantics
+@using NLTSQL.Semantics.Validation
+@using NLTSQL.Web.Charting
+@inject AskService AskService
+@inject ISemanticModelRegistry Models
+@inject ILogger<Ask> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Fragen — NLTSQL</PageTitle>
+
+<FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+
+    <FluentLabel Typo="Typography.PageTitle">Frag deine Daten</FluentLabel>
+
+    @if (this.modelNames.Count == 0)
+    {
+        <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">
+            Es ist kein Datenmodell geladen. Pruefe den konfigurierten Pfad unter <code>Nltsql:Semantics:Directory</code>.
+        </FluentMessageBar>
+    }
+    else
+    {
+        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Bottom" HorizontalGap="12">
+            <FluentTextField @bind-Value="this.question"
+                             @onkeydown="this.OnKeyDown"
+                             Placeholder="z. B. Umsatz pro Monat im letzten Jahr"
+                             Label="Frage"
+                             Disabled="@this.running"
+                             Style="flex: 1;" />
+
+            <FluentSelect TOption="string"
+                          Items="@this.modelNames"
+                          @bind-Value="this.selectedModel"
+                          Label="Datenmodell"
+                          Disabled="@this.running" />
+
+            <FluentButton Appearance="Appearance.Accent"
+                          OnClick="this.RunAsync"
+                          Disabled="@(this.running || string.IsNullOrWhiteSpace(this.question))">
+                Fragen
+            </FluentButton>
+        </FluentStack>
+
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" Wrap="true">
+            @foreach (var example in Examples)
+            {
+                <FluentButton Appearance="Appearance.Outline" Disabled="@this.running" OnClick="@(() => this.UseExample(example))">
+                    @example
+                </FluentButton>
+            }
+        </FluentStack>
+
+        @if (this.running)
+        {
+            <FluentProgressRing />
+            <FluentLabel Typo="Typography.Body">Das Modell plant die Abfrage …</FluentLabel>
+        }
+
+        @if (this.result is not null)
+        {
+            @if (!this.result.Success)
+            {
+                <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Title="Die Frage liess sich nicht beantworten">
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="4">
+                        @foreach (var issue in this.result.Issues.Where(i => i.Severity is IssueSeverity.Error))
+                        {
+                            <span>@issue.Message</span>
+                        }
+                        <span>Formuliere die Frage anders oder nutze die Begriffe aus dem Datenmodell.</span>
+                    </FluentStack>
+                </FluentMessageBar>
+            }
+            else
+            {
+                @if (this.result.Chart is { Kind: ChartKind.Kpi } kpi)
+                {
+                    <div class="kpi-card">
+                        <FluentLabel Typo="Typography.Subject">@this.KpiLabel(kpi)</FluentLabel>
+                        <div class="kpi-value">@this.KpiValue(kpi)</div>
+                    </div>
+                }
+
+                <ResultChart Chart="@this.result.Chart" Result="@this.result.Result" />
+
+                @if (this.result.Chart is { } chart && chart.Kind is not ChartKind.Kpi)
+                {
+                    <FluentLabel Typo="Typography.Body" Color="Color.Disabled">@chart.Reason</FluentLabel>
+                }
+
+                <ResultTable Result="@this.result.Result" />
+
+                <FluentLabel Typo="Typography.Body" Color="Color.Disabled">
+                    @this.result.Result!.RowCount.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) Zeile(n)
+                    in @this.result.Result.Duration.TotalMilliseconds.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) ms
+                    · Modell @this.result.ModelName @($"v{this.result.ModelVersion}")
+                    · @this.result.Attempts Planungsversuch(e)
+                </FluentLabel>
+            }
+
+            @* The derivation is shown for every answer, not hidden behind a debug switch. A figure
+               nobody can trace back to a definition is one people are right not to trust, and this
+               is how a domain expert confirms that "Umsatz" meant the measure they think it means. *@
+            <FluentAccordion Style="width: 100%;">
+                <FluentAccordionItem Heading="So ist diese Antwort entstanden">
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                        <div>
+                            <FluentLabel Typo="Typography.Subject">Strukturierte Abfrage</FluentLabel>
+                            <pre class="code-block">@this.SpecJson</pre>
+                        </div>
+                        @if (this.result.Sql is { Length: > 0 } sql)
+                        {
+                            <div>
+                                <FluentLabel Typo="Typography.Subject">Erzeugtes SQL</FluentLabel>
+                                <pre class="code-block">@sql</pre>
+                                <FluentLabel Typo="Typography.Body" Color="Color.Disabled">
+                                    Werte stehen als Parameter darin, nie im Text — deshalb sind hier Platzhalter zu sehen.
+                                </FluentLabel>
+                            </div>
+                        }
+                    </FluentStack>
+                </FluentAccordionItem>
+            </FluentAccordion>
+        }
+    }
+</FluentStack>
+
+@code {
+    private static readonly string[] Examples =
+    [
+        "Umsatz pro Monat",
+        "Umsatz nach Vertriebskanal",
+        "Wie viele Auftraege sind offen?",
+        "Durchschnittlicher Auftragswert je Quartal",
+    ];
+
+    private static readonly System.Text.Json.JsonSerializerOptions SpecJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
+    private List<string> modelNames = [];
+    private string selectedModel = string.Empty;
+    private string question = string.Empty;
+    private bool running;
+    private AskResult? result;
+
+    /// <inheritdoc/>
+    protected override void OnInitialized()
+    {
+        this.modelNames = [.. Models.Names.Order(StringComparer.Ordinal)];
+        this.selectedModel = this.modelNames.FirstOrDefault() ?? string.Empty;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !this.running)
+        {
+            await this.RunAsync();
+        }
+    }
+
+    private void UseExample(string example) => this.question = example;
+
+    private async Task RunAsync()
+    {
+        if (this.running || string.IsNullOrWhiteSpace(this.question))
+        {
+            return;
+        }
+
+        this.running = true;
+        this.result = null;
+
+        try
+        {
+            this.result = await AskService.AskAsync(this.question, this.selectedModel);
+        }
+        catch (InvalidOperationException exception)
+        {
+            // Configuration and model problems surface here — a missing data source, a row policy
+            // with no value. They are the operator's problem, not the user's, so the page says so
+            // plainly instead of showing a stack trace.
+            Logger.LogError(exception, "Asking a question failed.");
+            this.result = new AskResult(
+                this.question,
+                this.selectedModel,
+                0,
+                null,
+                null,
+                null,
+                null,
+                [ValidationIssue.Error("ask.failed", "konfiguration", exception.Message)],
+                0);
+        }
+        finally
+        {
+            this.running = false;
+        }
+    }
+
+    private string SpecJson =>
+        this.result?.Spec is null
+            ? "(keine)"
+            : System.Text.Json.JsonSerializer.Serialize(this.result.Spec, SpecJsonOptions);
+
+    private string KpiLabel(ChartSpec chart) =>
+        this.result?.Result?.Columns.FirstOrDefault(c => c.Alias == chart.ValueColumns[0])?.Label ?? string.Empty;
+
+    private string KpiValue(ChartSpec chart)
+    {
+        var column = this.result!.Result!.Columns.First(c => c.Alias == chart.ValueColumns[0]);
+        var index = this.result.Result.Columns.ToList().FindIndex(c => c.Alias == column.Alias);
+        return ResultFormatter.Format(this.result.Result.Rows[0][index], column);
+    }
+}
