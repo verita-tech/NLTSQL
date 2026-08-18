@@ -1,0 +1,381 @@
+# Fachmodell für das Demo-Vertriebsschema.
+#
+# Im fertigen Produkt schreibt `nltsql scaffold` diese Datei aus dem Datenbankkatalog. Für den
+# Prototyp ist sie von Hand gepflegt — bei vier Tabellen ist das schneller als der Generator, und
+# die Datei hat exakt die Form, die er später erzeugen wird. Der Loader liest sie bereits als die
+# generierte Hälfte des generated/overrides-Paars.
+#
+# Nicht von Hand editieren, sobald das Scaffolding steht: Änderungen gehören dann nach
+# vertrieb.overrides.yaml, weil ein Generatorlauf diese Datei vollständig überschreibt.
+
+model: vertrieb
+version: 1
+data_source: pg_demo
+label: Vertrieb
+description: Auftraege, Kunden, Produkte und Auftragspositionen aus dem Demo-ERP.
+
+entities:
+  - name: auftrag
+    label: Auftrag
+    description: Auftragskopf. Ein vom Kunden erteilter Auftrag, inklusive stornierter.
+    synonyms: [bestellung, order, auftraege, bestellungen]
+    table:
+      schema: vertrieb
+      name: auftrag
+    primary_key: [id]
+
+    dimensions:
+      - name: status
+        label: Auftragsstatus
+        description: Bearbeitungsstand des Auftrags.
+        synonyms: [zustand, auftragsstatus, bearbeitungsstand]
+        column: status
+        type: string
+        values: [offen, bestaetigt, versendet, storniert]
+
+      - name: vertriebskanal
+        label: Vertriebskanal
+        description: Ueber welchen Weg der Auftrag erfasst wurde.
+        synonyms: [kanal, vertriebsweg, absatzkanal]
+        column: vertriebskanal
+        type: string
+        values: [online, aussendienst, partner]
+
+      - name: auftragsnummer
+        label: Auftragsnummer
+        description: Fachliche Auftragsnummer aus dem ERP.
+        synonyms: [belegnummer, auftragsnr]
+        column: auftragsnummer
+        type: string
+
+      # Die folgenden sind ausgeblendet: sie existieren, damit Kennzahlen ihre Spalten nennen
+      # koennen, sind aber nichts, wonach jemand gruppieren oder filtern will.
+      - name: nettobetrag_wert
+        label: Nettobetrag
+        column: nettobetrag
+        type: decimal
+        hidden: true
+
+      - name: rabattbetrag_wert
+        label: Rabattbetrag
+        column: rabattbetrag
+        type: decimal
+        hidden: true
+
+      - name: kunde_verweis
+        label: Kunde
+        column: kunde_id
+        type: integer
+        hidden: true
+
+    time_dimensions:
+      - name: bestelldatum
+        label: Bestelldatum
+        description: Tag, an dem der Auftrag erteilt wurde.
+        synonyms: [auftragsdatum, bestelltag, datum]
+        column: bestelldatum
+        type: date
+
+      - name: lieferdatum
+        label: Lieferdatum
+        description: Tatsaechliches Lieferdatum. Leer, solange nicht geliefert.
+        synonyms: [versanddatum, auslieferung]
+        column: lieferdatum
+        type: date
+
+    measures:
+      - name: umsatz
+        label: Umsatz
+        description: Nettoauftragswert in EUR ohne Umsatzsteuer, nach Rabatt.
+        synonyms: [nettoumsatz, auftragswert, erloes]
+        agg: sum
+        column: nettobetrag
+        format:
+          kind: currency
+          currency: EUR
+
+      - name: bruttoumsatz
+        label: Umsatz vor Rabatt
+        description: Nettoauftragswert zuzueglich des gewaehrten Rabatts.
+        synonyms: [listenumsatz, umsatz vor rabatt]
+        agg: sum
+        expression: "{{nettobetrag}} + {{rabattbetrag}}"
+        format:
+          kind: currency
+          currency: EUR
+
+      - name: rabatt
+        label: Rabatt
+        description: Summe der gewaehrten Rabatte in EUR.
+        synonyms: [nachlass, preisnachlass]
+        agg: sum
+        column: rabattbetrag
+        format:
+          kind: currency
+          currency: EUR
+
+      - name: anzahl_auftraege
+        label: Anzahl Auftraege
+        description: Anzahl der Auftraege.
+        synonyms: [auftragsanzahl, anzahl bestellungen, menge auftraege]
+        agg: count
+        format:
+          kind: integer
+
+      - name: anzahl_kunden
+        label: Anzahl Kunden
+        description: Anzahl verschiedener Kunden mit mindestens einem Auftrag.
+        synonyms: [kundenanzahl, verschiedene kunden]
+        agg: count_distinct
+        column: kunde_id
+        format:
+          kind: integer
+
+    metrics:
+      - name: durchschnittlicher_auftragswert
+        label: Durchschnittlicher Auftragswert
+        description: Umsatz geteilt durch die Anzahl der Auftraege.
+        synonyms: [schnitt, mittlerer auftragswert, durchschnittsbestellwert]
+        expression: "{{umsatz}} / NULLIF({{anzahl_auftraege}}, 0)"
+        format:
+          kind: currency
+          currency: EUR
+
+      - name: rabattquote
+        label: Rabattquote
+        description: Anteil des Rabatts am Umsatz vor Rabatt.
+        synonyms: [rabattanteil, nachlassquote]
+        expression: "{{rabatt}} / NULLIF({{bruttoumsatz}}, 0)"
+        format:
+          kind: percent
+          decimals: 1
+
+  - name: kunde
+    label: Kunde
+    description: Auftraggeber. Enthaelt auch Kunden ohne aktuellen Auftrag.
+    synonyms: [kunden, auftraggeber, abnehmer]
+    table:
+      schema: vertrieb
+      name: kunde
+    primary_key: [id]
+
+    dimensions:
+      - name: land
+        label: Land
+        description: ISO-Laenderkennzeichen des Rechnungssitzes.
+        synonyms: [laendercode, staat, herkunftsland]
+        column: land
+        type: string
+        values: [DE, AT, CH, NL, FR]
+
+      - name: branche
+        label: Branche
+        description: Branchenschluessel des Kunden.
+        synonyms: [wirtschaftszweig, sektor]
+        column: branche
+        type: string
+        values: [Maschinenbau, Handel, Logistik, Chemie, Automotive]
+
+      - name: segment
+        label: Segment
+        description: Vertriebssegment nach Unternehmensgroesse.
+        synonyms: [kundensegment, groessenklasse]
+        column: segment
+        type: string
+        values: [KMU, Mittelstand, Konzern]
+
+      - name: kundennummer
+        label: Kundennummer
+        synonyms: [kundennr, debitorennummer]
+        column: kundennummer
+        type: string
+
+      - name: name
+        label: Name
+        description: Firmenname des Kunden.
+        synonyms: [firma, firmenname, kundenname]
+        column: name
+        type: string
+
+    time_dimensions:
+      - name: angelegt_am
+        label: Angelegt am
+        description: Tag, an dem der Kunde angelegt wurde.
+        synonyms: [anlagedatum, erfassungsdatum]
+        column: angelegt_am
+        type: date
+
+    measures:
+      - name: anzahl_kunden
+        label: Anzahl Kunden
+        description: Anzahl der Kunden.
+        synonyms: [kundenanzahl]
+        agg: count
+        format:
+          kind: integer
+
+  - name: produkt
+    label: Produkt
+    description: Verkaufbare Artikel des Produktkatalogs.
+    synonyms: [artikel, produkte, katalog]
+    table:
+      schema: vertrieb
+      name: produkt
+    primary_key: [id]
+
+    dimensions:
+      - name: produktgruppe
+        label: Produktgruppe
+        description: Oberste Ebene der Produkthierarchie.
+        synonyms: [warengruppe, artikelgruppe, sparte]
+        column: produktgruppe
+        type: string
+        values: [Antriebstechnik, Sensorik, Hydraulik, Elektronik, Zubehoer]
+
+      - name: aktiv
+        label: Aktiv
+        description: Ob der Artikel noch verkauft werden darf.
+        synonyms: [verfuegbar, im sortiment]
+        column: aktiv
+        type: boolean
+
+      - name: artikelnummer
+        label: Artikelnummer
+        synonyms: [artikelnr, sachnummer]
+        column: artikelnummer
+        type: string
+
+      - name: bezeichnung
+        label: Bezeichnung
+        synonyms: [artikelbezeichnung, produktname]
+        column: bezeichnung
+        type: string
+
+      - name: listenpreis_wert
+        label: Listenpreis
+        column: listenpreis
+        type: decimal
+        hidden: true
+
+    measures:
+      - name: anzahl_artikel
+        label: Anzahl Artikel
+        synonyms: [artikelanzahl, anzahl produkte]
+        agg: count
+        format:
+          kind: integer
+
+      - name: durchschnittlicher_listenpreis
+        label: Durchschnittlicher Listenpreis
+        description: Mittlerer Bruttolistenpreis in EUR, ohne kundenspezifische Rabatte.
+        synonyms: [mittlerer preis, preisniveau]
+        agg: avg
+        column: listenpreis
+        format:
+          kind: currency
+          currency: EUR
+
+  - name: auftragsposition
+    label: Auftragsposition
+    description: Einzelposition eines Auftrags. Ein Auftrag hat eine oder mehrere Positionen.
+    synonyms: [position, positionen, auftragszeile, bestellposition]
+    table:
+      schema: vertrieb
+      name: auftragsposition
+    primary_key: [id]
+
+    dimensions:
+      - name: positionsnummer
+        label: Positionsnummer
+        synonyms: [posnr, zeilennummer]
+        column: positionsnummer
+        type: integer
+
+      - name: menge_wert
+        label: Menge
+        column: menge
+        type: decimal
+        hidden: true
+
+      - name: positionsbetrag_wert
+        label: Positionsbetrag
+        column: positionsbetrag
+        type: decimal
+        hidden: true
+
+      - name: einzelpreis_wert
+        label: Einzelpreis
+        column: einzelpreis
+        type: decimal
+        hidden: true
+
+    measures:
+      - name: menge
+        label: Menge
+        description: Bestellte Menge in der Basismengeneinheit des Artikels.
+        synonyms: [stueckzahl, bestellmenge]
+        agg: sum
+        column: menge
+        format:
+          kind: number
+          decimals: 3
+
+      - name: positionsumsatz
+        label: Positionsumsatz
+        description: Menge mal Einzelpreis in EUR, netto.
+        synonyms: [zeilenumsatz, positionswert]
+        agg: sum
+        column: positionsbetrag
+        format:
+          kind: currency
+          currency: EUR
+
+      - name: anzahl_positionen
+        label: Anzahl Positionen
+        synonyms: [positionsanzahl, anzahl zeilen]
+        agg: count
+        format:
+          kind: integer
+
+relationships:
+  - name: auftrag_zu_kunde
+    from: auftrag.kunde_id
+    to: kunde.id
+    type: many_to_one
+
+  - name: position_zu_auftrag
+    from: auftragsposition.auftrag_id
+    to: auftrag.id
+    type: many_to_one
+
+  - name: position_zu_produkt
+    from: auftragsposition.produkt_id
+    to: produkt.id
+    type: many_to_one
+
+glossary:
+  - term: Nettoumsatz
+    definition: Auftragswert in EUR ohne Umsatzsteuer und nach Abzug gewaehrter Rabatte.
+
+  - term: Storno
+    definition: Auftrag mit Status storniert. Zaehlt nicht zum realisierten Umsatz.
+
+  - term: Aktiver Kunde
+    definition: Kunde mit mindestens einem nicht stornierten Auftrag in den letzten zwoelf Monaten.
+
+row_policies:
+  - entity: auftrag
+    column: mandant_id
+    parameter: tenant_id
+
+  - entity: kunde
+    column: mandant_id
+    parameter: tenant_id
+
+  - entity: produkt
+    column: mandant_id
+    parameter: tenant_id
+
+  - entity: auftragsposition
+    column: mandant_id
+    parameter: tenant_id

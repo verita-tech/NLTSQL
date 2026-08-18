@@ -1,0 +1,25 @@
+# Diese Datei gehoert dem Fachbereich.
+#
+# Sie wird ueber vertrieb.generated.yaml gelegt und vom Scaffolding niemals angefasst. Alles, was
+# hier steht, gewinnt gegen die generierte Fassung; alles, was hier fehlt, kommt von dort. So kann
+# `nltsql scaffold` jederzeit neu laufen, ohne fachliche Arbeit zu zerstoeren.
+#
+# Regeln:
+#   - Skalare (label, description) ersetzen den generierten Wert.
+#   - Listen (synonyms, values) ersetzen die generierte Liste vollstaendig.
+#   - Elemente werden ueber `name` zugeordnet, Gross-/Kleinschreibung egal.
+#   - Geloescht wird nie. Was nicht mehr abgefragt werden soll, bekommt `hidden: true`.
+
+entities:
+  - name: auftrag
+    # Beispiel dafuer, wie eine fachliche Praezisierung aussieht: der Generator kann aus dem
+    # Spaltenkommentar nicht wissen, wie das Haus den Begriff verwendet.
+    description: >-
+      Auftragskopf. Ein vom Kunden erteilter Auftrag. Stornierte Auftraege sind enthalten und
+      muessen bei Umsatzfragen ueber den Status ausgeschlossen werden.
+
+    measures:
+      - name: umsatz
+        # Als fachlich abgenommen markiert. Der Model-Browser zeigt spaeter an, was geprueft ist
+        # und was noch Generatorvorschlag.
+        status: reviewed
