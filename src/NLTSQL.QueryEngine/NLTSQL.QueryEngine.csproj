@@ -9,6 +9,7 @@
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Oracle.ManagedDataAccess.Core" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
   </ItemGroup>
 
 </Project>

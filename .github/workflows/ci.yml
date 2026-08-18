@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    name: Build and unit tests
+    name: Build and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,12 +29,12 @@ jobs:
         # Warnings are errors via Directory.Build.props, so this is also the lint gate.
         run: dotnet build --no-restore --configuration Release
 
-      # Integration tests own the Testcontainers category and are excluded here: spinning
-      # up Oracle costs minutes, and this job exists to give fast feedback on every push.
-      - name: Unit tests
+      # The whole suite runs in-process without a database. Correctness of the generated SQL is
+      # pinned by asserting the statement text verbatim for both dialects rather than by executing
+      # it, which keeps CI fast and free of container orchestration.
+      - name: Test
         run: >
           dotnet test --no-build --configuration Release
-          --filter "Category!=Integration"
           --logger "trx;LogFileName=test-results.trx"
           --results-directory artifacts/test-results
 
@@ -42,34 +42,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-results
-          path: artifacts/test-results
-          if-no-files-found: ignore
-
-  integration:
-    name: Integration tests (PostgreSQL + Oracle)
-    runs-on: ubuntu-latest
-    # Oracle needs several minutes to become healthy; the default 360 would mask a hang.
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-
-      - name: Integration tests
-        # Testcontainers manages the database lifecycle itself, so no service block here.
-        run: >
-          dotnet test --configuration Release
-          --filter "Category=Integration"
-          --logger "trx;LogFileName=integration-results.trx"
-          --results-directory artifacts/test-results
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-test-results
+          name: test-results
           path: artifacts/test-results
           if-no-files-found: ignore

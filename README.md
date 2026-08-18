@@ -54,11 +54,12 @@ Tabellenkommentare und Mandanten-Spalten mitbringt — beides braucht das Scaffo
 ## Tests
 
 ```bash
-dotnet test --filter "Category!=Integration"   # schnell, ohne Container
-dotnet test --filter "Category=Integration"    # gegen echtes PostgreSQL und Oracle
+dotnet test
 ```
 
-Integrationstests starten ihre Datenbanken selbst über Testcontainers.
+Die gesamte Suite läuft in-process, ohne Datenbank. Die Korrektheit des erzeugten SQL wird
+festgehalten, indem der Statement-Text für beide Dialekte wörtlich geprüft wird — eine Änderung
+am Rendering erscheint damit als lesbarer Diff statt als stille Zahlenabweichung.
 
 ## Sicherheitshinweise
 

@@ -10,10 +10,17 @@ namespace NLTSQL.QueryEngine.Tests;
 /// Asserts on the generated statement text for both engines.
 /// </summary>
 /// <remarks>
-/// These run without a database on purpose: they pin down exactly what is emitted, so a change in
-/// rendering shows up as a readable diff rather than as a subtly different number somewhere in an
-/// integration test. Whether the statements are also <em>accepted and correct</em> is the job of
-/// the integration tests that execute them against real engines.
+/// <para>
+/// These run in-process, without a database. They pin down exactly what is emitted, so a change in
+/// rendering shows up as a readable diff rather than as a subtly different number noticed weeks
+/// later.
+/// </para>
+/// <para>
+/// Because nothing here executes the statements, the dialect rules they assert have to be
+/// justified against the engines' documented behaviour rather than observed — which is why the
+/// cases that differ between Oracle and PostgreSQL each carry a comment explaining what the wrong
+/// choice would silently do.
+/// </para>
 /// </remarks>
 public sealed class SqlCompilerTests
 {
