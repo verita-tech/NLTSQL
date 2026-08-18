@@ -37,19 +37,49 @@ Datenbanken generiert und anschließend fachlich veredelt wird.
 - .NET SDK 10 (`global.json` pinnt die Bandbreite)
 - Docker, für die lokalen Zieldatenbanken und Ollama
 
-## Loslegen
+## Prototyp ausprobieren
+
+Der aktuelle Stand ist ein Prototyp: eine Frage stellen, die erzeugte Abfrage und das SQL sehen,
+Ergebnis als Tabelle und Diagramm. Ein Modell wird von Hand gepflegt statt generiert, es läuft
+gegen PostgreSQL, und Abfragen bleiben auf eine Entität beschränkt.
 
 ```bash
-docker compose up -d
+# 1. Zieldatenbank und Modellruntime starten
+docker compose up -d postgres ollama
 docker compose exec ollama ollama pull qwen3:14b
-docker compose exec ollama ollama pull nomic-embed-text
 
-dotnet build
-dotnet test
+# 2. Anwendung starten
+dotnet run --project src/NLTSQL.Web
 ```
 
-Die Zieldatenbanken werden mit einem Demo-Vertriebsschema (`vertrieb`) hochgefahren, das
-Tabellenkommentare und Mandanten-Spalten mitbringt — beides braucht das Scaffolding.
+Dann `https://localhost:7xxx` öffnen (der Port steht in der Konsolenausgabe) und zum Beispiel
+fragen:
+
+- „Umsatz pro Monat"
+- „Umsatz nach Vertriebskanal"
+- „Wie viele Auftraege sind offen?"
+- „Durchschnittlicher Auftragswert je Quartal"
+
+Unter **Datenmodell** steht, was überhaupt gefragt werden kann — dieselben Namen, die auch das
+Sprachmodell sieht.
+
+### Was der Prototyp noch nicht kann
+
+- **Keine Joins.** Fragen bleiben innerhalb einer Entität. „Umsatz pro Monat" geht, „Umsatz nach
+  Land" nicht, weil das Auftrag ⋈ Kunde bräuchte.
+- **Kein Scaffolding.** Das Fachmodell unter `semantics/` ist von Hand gepflegt. Es hat bereits
+  exakt die Form, die der Generator später erzeugen wird.
+- **Oracle läuft nicht mit.** Dialekt und Treiber sind vorhanden und getestet, im Prototyp wird
+  aber nur PostgreSQL hochgefahren.
+- **Ein fester Mandant.** Der Wert für die Row-Policy kommt aus `appsettings.json` statt aus dem
+  angemeldeten Nutzer. Der Mechanismus ist derselbe, nur die Quelle des Werts ist vorläufig.
+
+### Konfiguration
+
+Alles unter `Nltsql` in `appsettings.json`: `Semantics:Directory` (wo die Modelle liegen),
+`Ai:Endpoint` und `Ai:ChatModel`, `DataSources:Sources` (Zieldatenbanken), `QueryContext:PolicyValues`
+(Mandantenwerte) und `QueryLimits`. Die Optionen werden beim Start geprüft — eine falsche
+Konfiguration verhindert den Start, statt bei der ersten Frage aufzufallen.
 
 ## Tests
 
