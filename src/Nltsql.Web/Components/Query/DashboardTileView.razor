@@ -1,0 +1,96 @@
+@using Nltsql.Infrastructure.Persistence
+@inject ISemanticLayer SemanticLayer
+
+@*
+    One dashboard tile.
+
+    Each tile re-runs its saved query when the dashboard is opened. That
+    is the whole point of storing the query rather than the numbers: a
+    dashboard someone opens in six months shows today's data under
+    today's metric definitions.
+*@
+
+<FluentCard Style="@($"flex:1 1 {Width}px;min-width:{Width}px")">
+    <FluentStack Orientation="Orientation.Horizontal"
+                 VerticalAlignment="VerticalAlignment.Center"
+                 Style="justify-content:space-between;width:100%">
+        <FluentLabel Typo="Typography.Subject">@Tile.SavedQuery?.Title</FluentLabel>
+
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="4">
+            <FluentAnchor Appearance="Appearance.Stealth"
+                          Href="@($"/export/saved/{Tile.SavedQueryId}")"
+                          IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                          Title="CSV herunterladen" />
+
+            <FluentAnchor Appearance="Appearance.Stealth"
+                          Href="@($"/abfrage/{Tile.SavedQueryId}")"
+                          IconStart="@(new Icons.Regular.Size16.Open())"
+                          Title="Abfrage öffnen" />
+
+            <FluentButton Appearance="Appearance.Stealth"
+                          IconStart="@(new Icons.Regular.Size16.Dismiss())"
+                          Title="Kachel entfernen"
+                          OnClick="@(() => OnRemove.InvokeAsync(Tile.Id))" />
+        </FluentStack>
+    </FluentStack>
+
+    @if (!string.IsNullOrWhiteSpace(Tile.SavedQuery?.Description))
+    {
+        <p class="muted" style="margin:.25rem 0 .75rem">@Tile.SavedQuery.Description</p>
+    }
+
+    @if (_loading)
+    {
+        <FluentProgressRing />
+    }
+    else if (_error is not null)
+    {
+        <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@_error</FluentMessageBar>
+    }
+    else if (_result is not null)
+    {
+        <ResultTable Result="_result" />
+    }
+</FluentCard>
+
+@code {
+    [Parameter, EditorRequired]
+    public required DashboardTile Tile { get; set; }
+
+    [Parameter]
+    public int Width { get; set; } = 520;
+
+    [Parameter]
+    public EventCallback<Guid> OnRemove { get; set; }
+
+    private QueryResultSet? _result;
+    private string? _error;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var query = Tile.SavedQuery?.ToQuery();
+
+        if (query is null)
+        {
+            _error = "Die gespeicherte Abfrage konnte nicht gelesen werden.";
+            _loading = false;
+            return;
+        }
+
+        try
+        {
+            _result = await SemanticLayer.ExecuteAsync(query);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A tile whose members were renamed in the semantic layer
+            // should say so, not take the whole dashboard down.
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

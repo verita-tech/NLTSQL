@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      # Warnings are errors in Directory.Build.props, so this also covers
+      # analyzer and code-style violations.
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
+  infra:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: docker compose config --quiet
+        env:
+          POSTGRES_PASSWORD: ci
+          CUBEJS_API_SECRET: ci-secret-that-is-long-enough-for-checks
+          CUBEJS_SQL_PASSWORD: ci
+          METABASE_EMBEDDING_SECRET_KEY: ci-embedding-secret
+
+      - name: Validate semantic model YAML
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          failed = False
+          for path in pathlib.Path("infra/cube/model").rglob("*.yml"):
+              try:
+                  yaml.safe_load(path.read_text())
+              except yaml.YAMLError as error:
+                  print(f"{path}: {error}")
+                  failed = True
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Check warehouse SQL applies
+        run: |
+          docker run --rm -d --name pg -e POSTGRES_PASSWORD=ci -p 5432:5432 postgres:16-alpine
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U postgres && break
+            sleep 2
+          done
+          docker cp infra/warehouse pg:/warehouse
+          docker exec pg psql -U postgres -v ON_ERROR_STOP=1 -f /warehouse/01_schema.sql
+          docker exec pg psql -U postgres -v ON_ERROR_STOP=1 -f /warehouse/02_seed.sql
+          docker rm -f pg

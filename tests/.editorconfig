@@ -1,0 +1,4 @@
+# Test names read as sentences; underscores are the point, not an
+# oversight. CA1707 is aimed at public API surface, which tests are not.
+[*.cs]
+dotnet_diagnostic.CA1707.severity = none

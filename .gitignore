@@ -1,0 +1,26 @@
+# Build output
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+
+# Local configuration & secrets
+.env
+.env.local
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Tooling
+.vs/
+.vscode/
+.idea/
+node_modules/
+TestResults/
+coverage/

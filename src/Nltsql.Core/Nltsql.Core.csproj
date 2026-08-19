@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Domain and contracts. Deliberately dependency-free: the semantic
+    query model, its validation rules and the CSV projection must be
+    testable without Cube, Metabase, a database or an LLM.
+  -->
+
+</Project>

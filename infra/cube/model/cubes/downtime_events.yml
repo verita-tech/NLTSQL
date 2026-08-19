@@ -1,0 +1,99 @@
+cubes:
+  - name: downtime_events
+    description: >
+      Einzelne Stillstandsereignisse je Maschine mit Störgrund. Grundlage
+      für Pareto-Auswertungen der Ausfallgründe und für die MTTR.
+    sql_table: ops.fact_downtime_event
+    public: false
+
+    joins:
+      - name: machines
+        sql: "{CUBE}.machine_id = {machines}.machine_id"
+        relationship: many_to_one
+      - name: downtime_reasons
+        sql: "{CUBE}.reason_id = {downtime_reasons}.reason_id"
+        relationship: many_to_one
+
+    dimensions:
+      - name: event_id
+        sql: event_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: started_at
+        sql: started_at
+        type: time
+        title: Beginn Stillstand
+        meta:
+          synonyms: [Datum, Beginn, Störungsbeginn, date]
+
+      - name: ended_at
+        sql: ended_at
+        type: time
+        title: Ende Stillstand
+        meta:
+          synonyms: [Ende, Störungsende, end]
+
+    measures:
+      - name: event_count
+        type: count
+        title: Anzahl Stillstände
+        description: Anzahl der Stillstandsereignisse.
+        meta:
+          synonyms: [Anzahl Stillstände, Störungen, Anzahl Ausfälle, incidents]
+
+      - name: downtime_minutes
+        sql: duration_minutes
+        type: sum
+        title: Stillstandszeit (min)
+        meta:
+          synonyms: [Stillstandszeit, Ausfallzeit, Stillstandsdauer, downtime]
+
+      - name: unplanned_downtime_minutes
+        sql: duration_minutes
+        type: sum
+        title: Ungeplante Stillstandszeit (min)
+        description: Stillstandszeit ohne geplante Wartung und geplantes Rüsten.
+        filters:
+          - sql: "{downtime_reasons}.is_planned = false"
+        meta:
+          synonyms: [ungeplante Stillstandszeit, ungeplante Ausfallzeit, unplanned downtime]
+
+      - name: unplanned_event_count
+        type: count
+        title: Anzahl ungeplanter Stillstände
+        filters:
+          - sql: "{downtime_reasons}.is_planned = false"
+        meta:
+          synonyms: [ungeplante Störungen, Anzahl ungeplanter Ausfälle]
+
+      - name: mttr_minutes
+        sql: "{unplanned_downtime_minutes} / NULLIF({unplanned_event_count}, 0)"
+        type: number
+        title: MTTR (min)
+        description: >
+          Mean Time To Repair: mittlere Dauer eines ungeplanten
+          Stillstands in Minuten.
+        meta:
+          synonyms: [MTTR, mittlere Reparaturzeit, mean time to repair]
+
+    pre_aggregations:
+      - name: daily_rollup
+        measures:
+          - event_count
+          - downtime_minutes
+          - unplanned_downtime_minutes
+          - unplanned_event_count
+        dimensions:
+          - machines.machine_name
+          - machines.production_line
+          - downtime_reasons.reason_name
+          - downtime_reasons.reason_group
+          - downtime_reasons.is_planned
+          - sites.site_name
+        time_dimension: started_at
+        granularity: day
+        partition_granularity: month
+        refresh_key:
+          every: 1 hour

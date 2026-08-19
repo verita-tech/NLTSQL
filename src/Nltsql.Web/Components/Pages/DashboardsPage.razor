@@ -1,0 +1,67 @@
+@page "/dashboards"
+
+@using Nltsql.Infrastructure.Persistence
+@inject WorkspaceStore Workspace
+@inject IDialogService Dialogs
+@inject NavigationManager Navigation
+
+<PageTitle>Dashboards</PageTitle>
+
+<h1>Dashboards</h1>
+<p class="page-intro">
+    Ein Dashboard bündelt gespeicherte Abfragen. Beim Öffnen wird jede Kachel neu ausgeführt.
+</p>
+
+<FluentButton Appearance="Appearance.Accent"
+              IconStart="@(new Icons.Regular.Size16.Add())"
+              OnClick="CreateAsync">
+    Dashboard anlegen
+</FluentButton>
+
+@if (_dashboards is null)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true" Style="margin-top:1rem">
+        @foreach (var dashboard in _dashboards)
+        {
+            <FluentCard Width="320px" Style="cursor:pointer"
+                        @onclick="@(() => Navigation.NavigateTo($"/dashboards/{dashboard.Id}"))">
+                <FluentLabel Typo="Typography.Subject">@dashboard.Name</FluentLabel>
+                <p class="muted">@dashboard.Description</p>
+            </FluentCard>
+        }
+    </FluentStack>
+}
+
+@code {
+    private IReadOnlyList<Dashboard>? _dashboards;
+
+    protected override async Task OnInitializedAsync() =>
+        _dashboards = await Workspace.GetDashboardsAsync();
+
+    private async Task CreateAsync()
+    {
+        var dialog = await Dialogs.ShowDialogAsync<CreateDashboardDialog>(
+            new SaveQueryModel(),
+            new DialogParameters
+            {
+                Title = "Neues Dashboard",
+                PrimaryAction = "Anlegen",
+                SecondaryAction = "Abbrechen",
+                Width = "440px",
+            });
+
+        var result = await dialog.Result;
+
+        if (result.Cancelled || result.Data is not SaveQueryModel data || string.IsNullOrWhiteSpace(data.Title))
+        {
+            return;
+        }
+
+        var created = await Workspace.CreateDashboardAsync(data.Title, data.Description);
+        Navigation.NavigateTo($"/dashboards/{created.Id}");
+    }
+}

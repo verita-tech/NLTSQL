@@ -1,0 +1,115 @@
+@page "/dashboards/{DashboardId:guid}"
+
+@using Nltsql.Infrastructure.Persistence
+@inject WorkspaceStore Workspace
+@inject IDialogService Dialogs
+@inject IToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>@(_dashboard?.Name ?? "Dashboard")</PageTitle>
+
+@if (_dashboard is null)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <h1>@_dashboard.Name</h1>
+    <p class="page-intro">@_dashboard.Description</p>
+
+    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" Style="margin-bottom:1rem">
+        <FluentSelect TOption="SavedQuery"
+                      Label="Abfrage hinzufügen"
+                      Items="_available"
+                      OptionValue="@(q => q.Id.ToString())"
+                      OptionText="@(q => q.Title)"
+                      SelectedOption="_toAdd"
+                      SelectedOptionChanged="@(q => _toAdd = q)" />
+
+        <FluentButton Appearance="Appearance.Accent"
+                      Disabled="@(_toAdd is null)"
+                      IconStart="@(new Icons.Regular.Size16.Add())"
+                      OnClick="AddTileAsync">
+            Hinzufügen
+        </FluentButton>
+
+        <FluentButton Appearance="Appearance.Stealth"
+                      IconStart="@(new Icons.Regular.Size16.Delete())"
+                      OnClick="DeleteDashboardAsync">
+            Dashboard löschen
+        </FluentButton>
+    </FluentStack>
+
+    @if (_dashboard.Tiles.Count == 0)
+    {
+        <FluentMessageBar Intent="MessageIntent.Info" AllowDismiss="false">
+            Dieses Dashboard ist noch leer. Fügen Sie eine gespeicherte Abfrage hinzu.
+        </FluentMessageBar>
+    }
+    else
+    {
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
+            @foreach (var tile in _dashboard.Tiles.OrderBy(t => t.Position))
+            {
+                @* Keyed so a removed tile does not make the others
+                   re-execute their queries. *@
+                <DashboardTileView @key="tile.Id" Tile="tile" OnRemove="RemoveTileAsync" />
+            }
+        </FluentStack>
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid DashboardId { get; set; }
+
+    private Dashboard? _dashboard;
+    private IReadOnlyList<SavedQuery> _available = [];
+    private SavedQuery? _toAdd;
+
+    protected override async Task OnParametersSetAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _dashboard = await Workspace.GetDashboardAsync(DashboardId);
+        _available = await Workspace.GetSavedQueriesAsync();
+    }
+
+    private async Task AddTileAsync()
+    {
+        if (_toAdd is null)
+        {
+            return;
+        }
+
+        await Workspace.AddTileAsync(DashboardId, _toAdd.Id);
+        _toAdd = null;
+
+        await ReloadAsync();
+    }
+
+    private async Task RemoveTileAsync(Guid tileId)
+    {
+        await Workspace.RemoveTileAsync(tileId);
+        await ReloadAsync();
+    }
+
+    private async Task DeleteDashboardAsync()
+    {
+        var confirmation = await Dialogs.ShowConfirmationAsync(
+            "Dashboard wirklich löschen? Die gespeicherten Abfragen bleiben erhalten.",
+            "Löschen",
+            "Abbrechen",
+            "Dashboard löschen");
+
+        if ((await confirmation.Result).Cancelled)
+        {
+            return;
+        }
+
+        await Workspace.DeleteDashboardAsync(DashboardId);
+        Toasts.ShowSuccess("Dashboard gelöscht.");
+
+        Navigation.NavigateTo("/dashboards");
+    }
+}

@@ -1,0 +1,31 @@
+views:
+  - name: stillstaende
+    title: Stillstände & Instandhaltung
+    description: >
+      Stillstandsereignisse je Maschine und Störgrund, inklusive
+      geplant/ungeplant und MTTR. Startpunkt für Pareto-Analysen der
+      Ausfallgründe.
+    meta:
+      domain: Instandhaltung
+      grain: Ein Stillstandsereignis.
+
+    cubes:
+      - join_path: downtime_events
+        includes: "*"
+
+      - join_path: downtime_events.machines
+        includes:
+          - machine_code
+          - machine_name
+          - production_line
+
+      - join_path: downtime_events.machines.sites
+        includes:
+          - site_name
+
+      - join_path: downtime_events.downtime_reasons
+        includes:
+          - reason_code
+          - reason_name
+          - reason_group
+          - is_planned

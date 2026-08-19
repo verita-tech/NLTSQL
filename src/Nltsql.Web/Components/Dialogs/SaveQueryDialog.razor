@@ -1,0 +1,26 @@
+@implements IDialogContentComponent<SaveQueryModel>
+
+<FluentDialogBody>
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+        <FluentTextField @bind-Value="Content.Title"
+                         Label="Titel"
+                         Required="true"
+                         Placeholder="z. B. OEE je Maschine, letzte 30 Tage"
+                         Style="width:100%" />
+
+        <FluentTextArea @bind-Value="Content.Description"
+                        Label="Beschreibung (optional)"
+                        Rows="3"
+                        Style="width:100%" />
+
+        <p class="muted" style="margin:0">
+            Gespeichert wird die Abfrage, nicht das Ergebnis. Beim Öffnen wird sie erneut
+            ausgeführt und zeigt damit immer den aktuellen Stand.
+        </p>
+    </FluentStack>
+</FluentDialogBody>
+
+@code {
+    [Parameter]
+    public SaveQueryModel Content { get; set; } = new();
+}

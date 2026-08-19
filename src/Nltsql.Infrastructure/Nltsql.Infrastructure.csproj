@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="CsvHelper" />
+    <PackageReference Include="Anthropic" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nltsql.Core\Nltsql.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Cube wire-format mappers are internal, but they are exactly
+         where an assumption about someone else's JSON can rot silently. -->
+    <InternalsVisibleTo Include="Nltsql.Tests" />
+  </ItemGroup>
+
+</Project>

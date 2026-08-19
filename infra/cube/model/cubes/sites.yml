@@ -1,0 +1,34 @@
+cubes:
+  - name: sites
+    description: Werksstandorte.
+    sql_table: ops.dim_site
+    public: false
+
+    dimensions:
+      - name: site_id
+        sql: site_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: site_code
+        sql: site_code
+        type: string
+        title: Werkskürzel
+        meta:
+          synonyms: [Werkskürzel, Standortcode, site code]
+
+      - name: site_name
+        sql: site_name
+        type: string
+        title: Werk
+        description: Name des Werks bzw. Standorts.
+        meta:
+          synonyms: [Werk, Standort, Werksstandort, plant, site]
+
+      - name: country
+        sql: country
+        type: string
+        title: Land
+        meta:
+          synonyms: [Land, Länderkennzeichen, country]

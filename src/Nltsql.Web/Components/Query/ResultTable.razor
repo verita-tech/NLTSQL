@@ -1,0 +1,92 @@
+@using Nltsql.Web.Services
+
+@*
+    Dynamic result grid.
+
+    A plain table rather than FluentDataGrid on purpose: the column set
+    is only known at runtime and changes with every query, which is the
+    one shape a strongly typed grid makes awkward rather than easier.
+*@
+
+@if (Result.RowCount == 0)
+{
+    <FluentMessageBar Intent="MessageIntent.Info" AllowDismiss="false">
+        Die Abfrage hat keine Daten geliefert. Prüfen Sie Zeitraum und Filter.
+    </FluentMessageBar>
+}
+else
+{
+    <div class="result-scroll">
+        <table class="result">
+            <thead>
+                <tr>
+                    @foreach (var column in Result.Columns)
+                    {
+                        <th class="@(ValueFormatter.IsNumeric(column) ? "numeric" : null)"
+                            scope="col">
+                            @column.Title
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in VisibleRows)
+                {
+                    <tr>
+                        @for (var i = 0; i < Result.Columns.Count; i++)
+                        {
+                            var column = Result.Columns[i];
+                            <td class="@(ValueFormatter.IsNumeric(column) ? "numeric" : null)">
+                                @ValueFormatter.Format(row[i], column)
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <p class="muted" style="margin-top:.5rem">
+        @if (Result.RowCount > MaxDisplayRows)
+        {
+            <text>
+                @MaxDisplayRows.ToString("N0", Culture) von @Result.RowCount.ToString("N0", Culture) Zeilen angezeigt.
+                Der CSV-Export enthält alle Zeilen.
+            </text>
+        }
+        else
+        {
+            <text>@Result.RowCount.ToString("N0", Culture) Zeilen.</text>
+        }
+
+        <text> Laufzeit @ValueFormatter.FormatDuration(Result.Duration).</text>
+
+        @if (Result.FromPreAggregation)
+        {
+            <text> Aus Pre-Aggregation beantwortet.</text>
+        }
+    </p>
+
+    @if (Result.IsTruncated)
+    {
+        <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">
+            Das Zeilenlimit wurde erreicht — das Ergebnis ist unvollständig.
+            Grenzen Sie den Zeitraum ein oder erhöhen Sie das Limit.
+        </FluentMessageBar>
+    }
+}
+
+@code {
+    /// <summary>
+    /// Rendering tens of thousands of rows into the DOM would stall the
+    /// circuit; the export path is what serves the full result.
+    /// </summary>
+    private const int MaxDisplayRows = 500;
+
+    private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("de-DE");
+
+    [Parameter, EditorRequired]
+    public required QueryResultSet Result { get; set; }
+
+    private IEnumerable<object?[]> VisibleRows => Result.Rows.Take(MaxDisplayRows);
+}

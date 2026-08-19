@@ -1,0 +1,46 @@
+cubes:
+  - name: downtime_reasons
+    description: >
+      Stillstandsgründe nach Werksschlüssel, gruppiert und danach
+      unterschieden, ob der Stillstand geplant war.
+    sql_table: ops.dim_downtime_reason
+    public: false
+
+    dimensions:
+      - name: reason_id
+        sql: reason_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: reason_code
+        sql: reason_code
+        type: string
+        title: Störcode
+        meta:
+          synonyms: [Störcode, Stillstandscode, Grundcode, reason code]
+
+      - name: reason_name
+        sql: reason_name
+        type: string
+        title: Stillstandsgrund
+        meta:
+          synonyms: [Stillstandsgrund, Störgrund, Ausfallgrund, Grund, reason]
+
+      - name: reason_group
+        sql: reason_group
+        type: string
+        title: Grundgruppe
+        description: Fachliche Gruppierung, z. B. Instandhaltung, Rüsten, Organisation.
+        meta:
+          synonyms: [Grundgruppe, Störgruppe, Kategorie, reason group]
+
+      - name: is_planned
+        sql: is_planned
+        type: boolean
+        title: Geplant
+        description: >
+          Wahr für geplante Stillstände (Wartung, geplantes Rüsten).
+          Ungeplante Stillstände sind der Treiber der Verfügbarkeit.
+        meta:
+          synonyms: [geplant, geplanter Stillstand, planned]

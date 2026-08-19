@@ -1,0 +1,80 @@
+@page "/modell"
+@inject ISemanticLayer SemanticLayer
+
+<PageTitle>Datenmodell</PageTitle>
+
+<h1>Datenmodell</h1>
+<p class="page-intro">
+    Die fachliche Sicht auf die Daten. Was hier steht, ist genau das, was Abfragen,
+    Diagramme und die Frageeingabe verwenden können — die Definitionen stammen aus der
+    semantischen Schicht, nicht aus dieser Anwendung.
+</p>
+
+@if (_error is not null)
+{
+    <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">
+        Das Modell konnte nicht geladen werden: @_error
+    </FluentMessageBar>
+}
+else if (_model is null)
+{
+    <FluentProgressRing />
+}
+else
+{
+    <FluentAccordion>
+        @foreach (var view in _model.Views)
+        {
+            <FluentAccordionItem Heading="@view.Title" Expanded="true">
+                <p class="muted">@view.Description</p>
+
+                <FluentLabel Typo="Typography.Subject">Kennzahlen</FluentLabel>
+                <ul>
+                    @foreach (var measure in view.Measures)
+                    {
+                        <li>
+                            <strong>@measure.Title</strong>
+                            <code class="muted">@measure.Name</code>
+                            @if (!string.IsNullOrWhiteSpace(measure.Description))
+                            {
+                                <div class="muted">@measure.Description</div>
+                            }
+                        </li>
+                    }
+                </ul>
+
+                <FluentLabel Typo="Typography.Subject">Merkmale</FluentLabel>
+                <ul>
+                    @foreach (var dimension in view.Dimensions)
+                    {
+                        <li>
+                            <strong>@dimension.Title</strong>
+                            <code class="muted">@dimension.Name</code>
+                            @if (!string.IsNullOrWhiteSpace(dimension.Description))
+                            {
+                                <div class="muted">@dimension.Description</div>
+                            }
+                        </li>
+                    }
+                </ul>
+            </FluentAccordionItem>
+        }
+    </FluentAccordion>
+}
+
+@code {
+    private SemanticModel? _model;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _model = await SemanticLayer.GetModelAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _error = exception.Message;
+        }
+    }
+}

@@ -1,0 +1,111 @@
+@page "/gespeichert"
+
+@using Nltsql.Infrastructure.Persistence
+@inject WorkspaceStore Workspace
+@inject IDialogService Dialogs
+@inject IToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>Gespeicherte Abfragen</PageTitle>
+
+<h1>Gespeicherte Abfragen</h1>
+<p class="page-intro">
+    Beim Öffnen wird die Abfrage erneut ausgeführt. Gespeichert ist die Fragestellung,
+    nicht ein eingefrorenes Ergebnis.
+</p>
+
+@if (_queries is null)
+{
+    <FluentProgressRing />
+}
+else if (_queries.Count == 0)
+{
+    <FluentMessageBar Intent="MessageIntent.Info" AllowDismiss="false">
+        Noch nichts gespeichert. Führen Sie auf der Seite „Abfrage“ eine Auswertung aus und speichern Sie sie.
+    </FluentMessageBar>
+}
+else
+{
+    <FluentDataGrid Items="@_queries.AsQueryable()" TGridItem="SavedQuery" GridTemplateColumns="3fr 1fr 1fr 1.6fr">
+        <PropertyColumn Property="@(q => q.Title)" Title="Titel" />
+        <TemplateColumn Title="Diagramm">
+            @context.ChartType.ToGermanLabel()
+        </TemplateColumn>
+        <TemplateColumn Title="Geändert">
+            @context.UpdatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm", Culture)
+        </TemplateColumn>
+        <TemplateColumn Title="Aktionen" Align="Align.End">
+            <FluentButton Appearance="Appearance.Stealth"
+                          IconStart="@(new Icons.Regular.Size16.Open())"
+                          Title="Öffnen"
+                          OnClick="@(() => Navigation.NavigateTo($"/abfrage/{context.Id}"))" />
+
+            <FluentAnchor Appearance="Appearance.Stealth"
+                          Href="@($"/export/saved/{context.Id}")"
+                          IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                          Title="CSV herunterladen" />
+
+            <FluentButton Appearance="Appearance.Stealth"
+                          IconStart="@(new Icons.Regular.Size16.BoardSplit())"
+                          Title="Zu Dashboard hinzufügen"
+                          OnClick="@(() => AddToDashboardAsync(context))" />
+
+            <FluentButton Appearance="Appearance.Stealth"
+                          IconStart="@(new Icons.Regular.Size16.Delete())"
+                          Title="Löschen"
+                          OnClick="@(() => DeleteAsync(context))" />
+        </TemplateColumn>
+    </FluentDataGrid>
+}
+
+@code {
+    private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("de-DE");
+
+    private IReadOnlyList<SavedQuery>? _queries;
+    private IReadOnlyList<Dashboard> _dashboards = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _queries = await Workspace.GetSavedQueriesAsync();
+        _dashboards = await Workspace.GetDashboardsAsync();
+    }
+
+    private async Task AddToDashboardAsync(SavedQuery query)
+    {
+        if (_dashboards.Count == 0)
+        {
+            Toasts.ShowWarning("Legen Sie zuerst ein Dashboard an.");
+            return;
+        }
+
+        // One dashboard is the common case in the prototype; with several,
+        // the picker on the dashboard page is the fuller route.
+        var target = _dashboards[0];
+
+        await Workspace.AddTileAsync(target.Id, query.Id);
+        Toasts.ShowSuccess($"„{query.Title}“ zu „{target.Name}“ hinzugefügt.");
+    }
+
+    private async Task DeleteAsync(SavedQuery query)
+    {
+        var confirmation = await Dialogs.ShowConfirmationAsync(
+            $"„{query.Title}“ wirklich löschen?",
+            "Löschen",
+            "Abbrechen",
+            "Abfrage löschen");
+
+        var result = await confirmation.Result;
+
+        if (result.Cancelled)
+        {
+            return;
+        }
+
+        await Workspace.DeleteSavedQueryAsync(query.Id);
+        await ReloadAsync();
+
+        Toasts.ShowSuccess("Abfrage gelöscht.");
+    }
+}
