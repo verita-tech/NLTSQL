@@ -27,4 +27,10 @@ internal static partial class PlannerLog
         Level = LogLevel.Warning,
         Message = "Antwort des Sprachmodells war kein gültiges JSON: {Error}")]
     public static partial void UnreadableResponse(ILogger logger, string error);
+
+    [LoggerMessage(
+        EventId = 3004,
+        Level = LogLevel.Error,
+        Message = "Ollama unter {BaseUrl} nicht erreichbar: {Error}")]
+    public static partial void ServerUnreachable(ILogger logger, string baseUrl, string error);
 }

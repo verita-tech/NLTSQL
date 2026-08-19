@@ -1,15 +1,67 @@
 namespace Nltsql.Infrastructure.Configuration;
 
+/// <summary>
+/// Settings for the local language model used to turn questions into
+/// semantic queries.
+/// </summary>
+/// <remarks>
+/// The planner runs against Ollama on the customer's own machines. That
+/// is a deliberate constraint rather than a cost decision: the prompt
+/// carries the complete semantic catalogue — every measure, dimension
+/// and business description of the domain — plus the user's question.
+/// None of that leaves the network.
+/// </remarks>
 public sealed class PlannerOptions
 {
     public const string SectionName = "Planner";
 
-    /// <summary>Anthropic API key. Empty disables natural-language input.</summary>
-    public string? ApiKey { get; set; }
+    /// <summary>Base URL of the Ollama server.</summary>
+    public string BaseUrl { get; set; } = "http://localhost:11434";
 
-    public string BaseUrl { get; set; } = "https://api.anthropic.com";
+    /// <summary>
+    /// Model tag, exactly as <c>ollama list</c> reports it.
+    /// </summary>
+    /// <remarks>
+    /// Needs to be an instruction-tuned model that honours a JSON schema.
+    /// The 7B class is the smallest that reliably picks the right member
+    /// out of a domain catalogue; below that, plans get rejected by
+    /// validation often enough to be annoying.
+    /// </remarks>
+    public string Model { get; set; } = "qwen2.5:7b-instruct";
 
-    public string Model { get; set; } = "claude-opus-5";
+    /// <summary>
+    /// Turns the natural-language box on. Off by default so the app does
+    /// not appear broken when no Ollama server is running.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Context window in tokens for the request.
+    /// </summary>
+    /// <remarks>
+    /// This has to be set explicitly and is the single most damaging
+    /// thing to get wrong. Ollama defaults a request to a small context
+    /// (2048 tokens on most builds) and silently discards whatever does
+    /// not fit — from the front, which is exactly where the catalogue
+    /// and the rules live. The symptom is not an error but a planner
+    /// that invents member names, because it never saw the list.
+    /// <para>
+    /// It must comfortably exceed the generated prompt. Check the real
+    /// size on the "Datenmodell" page; a large model with many measures
+    /// may need 16384.
+    /// </para>
+    /// </remarks>
+    public int ContextTokens { get; set; } = 8192;
+
+    /// <summary>
+    /// How long Ollama keeps the model in memory after a request.
+    /// </summary>
+    /// <remarks>
+    /// Without this, Ollama unloads after five minutes and the next
+    /// question pays the load time again — several seconds for a 7B
+    /// model, and far worse on a cold page cache.
+    /// </remarks>
+    public string KeepAlive { get; set; } = "30m";
 
     /// <summary>
     /// Extra business context handed to the planner alongside the
@@ -20,11 +72,23 @@ public sealed class PlannerOptions
 
     /// <summary>
     /// How many times a rejected plan is sent back with its validation
-    /// errors. One retry fixes nearly every miss; more mostly burns time.
+    /// errors.
     /// </summary>
-    public int MaxRepairAttempts { get; set; } = 1;
+    /// <remarks>
+    /// Two by default rather than one: a local 7B model misses a member
+    /// name more often than a frontier model, and the retry is cheap
+    /// because it is answered by hardware the customer already paid for.
+    /// </remarks>
+    public int MaxRepairAttempts { get; set; } = 2;
 
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(45);
+    /// <summary>
+    /// Budget for one planning request, including model load time.
+    /// </summary>
+    /// <remarks>
+    /// Generous on purpose: on CPU-only hardware a 7B model can take a
+    /// minute for the first answer.
+    /// </remarks>
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(180);
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
+    public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(BaseUrl) && !string.IsNullOrWhiteSpace(Model);
 }

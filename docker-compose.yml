@@ -5,14 +5,18 @@
 #   cube         semantic layer: REST API for the app, SQL API for Metabase
 #   metabase-db  Metabase application database
 #   metabase     Metabase 0.63, connected to Cube's SQL API
+#   ollama       local language model for the question box
+#   ollama-pull  one-shot model download (profile "setup")
 #   app          the Blazor front end (profile "app")
 #
 # Only Metabase and the app publish ports by default; the warehouse and
 # Cube stay on the internal network. Cube is deliberately not reachable
 # from a browser — every Cube call is made server-side with a signed JWT.
 #
-#   docker compose up -d                  infra only, run the app from the IDE
-#   docker compose --profile app up -d    everything, including the app
+#   docker compose up -d                    infra only, run the app from the IDE
+#   docker compose --profile setup up \
+#       ollama-pull                         download the model (once, several GB)
+#   docker compose --profile app up -d      everything, including the app
 # =====================================================================
 
 name: nltsql
@@ -118,6 +122,49 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  ollama:
+    # The one image left unpinned: what matters is the version floor, not
+    # a specific build. Structured outputs (a JSON schema in "format")
+    # need Ollama 0.5.0 or newer. Pin this to the version you validated
+    # against before any shared deployment.
+    image: ollama/ollama:latest
+    volumes:
+      # Models are gigabytes; a named volume keeps them across restarts.
+      - ollama-models:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    # For an NVIDIA GPU, install the container toolkit and uncomment.
+    # Left commented because the block makes compose fail outright on
+    # hosts without the nvidia runtime.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  ollama-pull:
+    # Behind a profile so a plain `up` does not silently start a download
+    # of several gigabytes. Re-running it is cheap: an existing model is
+    # verified, not fetched again.
+    profiles: ["setup"]
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${PLANNER_MODEL:-qwen2.5:7b-instruct}"]
+    restart: "no"
+
   app:
     profiles: ["app"]
     build:
@@ -135,7 +182,9 @@ services:
       Metabase__ApiKey: ${METABASE_API_KEY}
       Metabase__EmbeddingSecretKey: ${METABASE_EMBEDDING_SECRET_KEY}
       Metabase__CubeDatabaseId: ${METABASE_CUBE_DATABASE_ID}
-      Planner__ApiKey: ${ANTHROPIC_API_KEY}
+      Planner__Enabled: ${PLANNER_ENABLED:-false}
+      Planner__BaseUrl: http://ollama:11434
+      Planner__Model: ${PLANNER_MODEL:-qwen2.5:7b-instruct}
       ConnectionStrings__AppDb: Data Source=/data/nltsql.db
     volumes:
       - app-data:/data
@@ -144,10 +193,13 @@ services:
     depends_on:
       cube:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   warehouse-data:
+  ollama-models:
   metabase-db-data:
   cube-cache:
   app-data:

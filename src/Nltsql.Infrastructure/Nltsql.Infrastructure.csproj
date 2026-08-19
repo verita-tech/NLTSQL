@@ -7,7 +7,6 @@
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="CsvHelper" />
-    <PackageReference Include="Anthropic" />
   </ItemGroup>
 
   <ItemGroup>

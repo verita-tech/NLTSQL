@@ -1,7 +1,7 @@
-using Anthropic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
 using Nltsql.Core.Abstractions;
 using Nltsql.Infrastructure.Configuration;
 using Nltsql.Infrastructure.Cube;
@@ -56,15 +56,26 @@ public static class DependencyInjection
 
         var baseUrl = configuration[$"{CubeOptions.SectionName}:BaseUrl"] ?? "http://localhost:4000";
 
+        var queryTimeout = configuration.GetValue<TimeSpan?>($"{CubeOptions.SectionName}:QueryTimeout")
+            ?? TimeSpan.FromSeconds(60);
+
         services.AddHttpClient<ISemanticLayer, CubeSemanticLayer>(client =>
             {
                 client.BaseAddress = new Uri(baseUrl);
 
                 // Generous: Cube's own long-poll budget sits inside this,
                 // and the per-query deadline is enforced separately.
-                client.Timeout = TimeSpan.FromMinutes(2);
+                client.Timeout = TimeSpan.FromMinutes(5);
             })
-            .AddStandardResilienceHandler();
+            .AddStandardResilienceHandler(resilience =>
+            {
+                // The defaults (10s per attempt, 30s total) are tuned for
+                // chatty service calls and would cut an analytical query
+                // long before the configured budget was spent — with a
+                // timeout that looks like Cube failing rather than a
+                // client-side cap.
+                ConfigureTimeouts(resilience, queryTimeout, retries: 2);
+            });
     }
 
     private static void AddMetabase(IServiceCollection services, IConfiguration configuration)
@@ -83,17 +94,56 @@ public static class DependencyInjection
 
     private static void AddPlanner(IServiceCollection services, IConfiguration configuration)
     {
-        var apiKey = configuration[$"{PlannerOptions.SectionName}:ApiKey"];
+        var section = configuration.GetSection(PlannerOptions.SectionName);
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (!section.GetValue("Enabled", false))
         {
-            // No key: the structured builder carries the app on its own.
+            // Disabled: the structured builder carries the app on its own.
             services.AddSingleton<IQueryPlanner, DisabledQueryPlanner>();
             return;
         }
 
-        services.AddSingleton(_ => new AnthropicClient { ApiKey = apiKey });
-        services.AddScoped<IQueryPlanner, ClaudeQueryPlanner>();
+        var baseUrl = section["BaseUrl"] ?? "http://localhost:11434";
+        var timeout = section.GetValue<TimeSpan?>("Timeout") ?? TimeSpan.FromSeconds(180);
+
+        services.AddHttpClient<OllamaChatClient>(client =>
+            {
+                client.BaseAddress = new Uri(baseUrl);
+
+                // Outermost bound; the planner enforces its own budget.
+                client.Timeout = timeout + TimeSpan.FromSeconds(30);
+            })
+            .AddStandardResilienceHandler(resilience =>
+            {
+                // A local model on CPU can take a minute for the first
+                // answer, and re-running a slow generation is expensive.
+                // One retry covers a dropped connection; beyond that,
+                // failing fast tells the user more than waiting does.
+                ConfigureTimeouts(resilience, timeout, retries: 1);
+            });
+
+        services.AddScoped<IQueryPlanner, OllamaQueryPlanner>();
+    }
+
+    /// <summary>
+    /// Widens the resilience pipeline to fit a genuinely slow call.
+    /// </summary>
+    /// <remarks>
+    /// The pipeline validates its own options: the total timeout has to
+    /// exceed one attempt, and the circuit breaker's sampling window has
+    /// to be at least twice the attempt timeout. Deriving all three from
+    /// one budget keeps those relationships true whatever the operator
+    /// configures.
+    /// </remarks>
+    private static void ConfigureTimeouts(
+        HttpStandardResilienceOptions resilience,
+        TimeSpan budget,
+        int retries)
+    {
+        resilience.AttemptTimeout.Timeout = budget;
+        resilience.TotalRequestTimeout.Timeout = budget * (retries + 1) + TimeSpan.FromSeconds(10);
+        resilience.CircuitBreaker.SamplingDuration = budget * 2;
+        resilience.Retry.MaxRetryAttempts = retries;
     }
 
     private static void AddPersistence(IServiceCollection services, IConfiguration configuration)

@@ -135,3 +135,51 @@ Anwendung gar nicht hindurchlaufen.
 **Preis:** Ein Stück Zugriffslogik liegt in JavaScript neben dem Modell
 statt im C#-Code. Das ist die richtige Ebene: es ist die einzige, durch
 die alle Leser hindurchmüssen.
+
+---
+
+## 9. Die Frageeingabe läuft auf einem lokalen Modell
+
+Der Planner spricht mit Ollama auf Hardware des Kunden. Es gibt keinen
+Cloud-Fallback.
+
+**Warum:** Der Prompt enthält den vollständigen semantischen Katalog —
+jede Kennzahl, jedes Merkmal und die Fachbeschreibungen der Domäne —
+zusammen mit der Frage des Benutzers. Das ist in einer fachspezifischen
+Domäne genau das Wissen, das ein Unternehmen nicht aus der Hand gibt.
+Lokal ist es dazu abrechnungsfrei und funktioniert in einem Netz ohne
+Internetzugang.
+
+**Preis:** Ein Modell der 7B-Klasse trifft die Feldwahl seltener als ein
+großes Cloud-Modell. Der Entwurf trägt das, statt sich auf Modellgüte zu
+verlassen: die Ausgabe wird per JSON-Schema erzwungen, gegen das live
+geladene Modell validiert, und ein abgelehnter Plan geht mit den
+konkreten Fehlern zurück (`MaxRepairAttempts` steht deshalb auf 2 statt
+auf 1). Ein Plan, der danach immer noch nicht validiert, wird gemeldet
+und nicht ausgeführt. Zusätzlich braucht der Betrieb Speicher: rund 6 GB
+für die Voreinstellung.
+
+---
+
+## 10. Zeitbudgets der Resilience-Pipeline explizit gesetzt
+
+`AddStandardResilienceHandler` wird für Cube und Ollama konfiguriert
+statt mit Voreinstellungen verwendet.
+
+**Warum:** Die Voreinstellungen sind auf kurze Service-Aufrufe ausgelegt
+— 10 Sekunden je Versuch, 30 Sekunden gesamt. Beides ist für die beiden
+Aufrufe hier falsch: eine analytische Abfrage über 18 Monate kann länger
+brauchen, und ein lokales Modell auf CPU braucht für die erste Antwort
+regelmäßig länger. Der Abbruch sähe dabei nicht nach einer
+Client-Begrenzung aus, sondern nach einem Fehler des Gegenübers — die
+teuerste Sorte Fehlersuche.
+
+Die drei Werte hängen zusammen (Gesamtbudget > Versuchsbudget, und das
+Sampling-Fenster des Circuit Breakers mindestens doppelt so groß wie ein
+Versuch), deshalb werden sie aus einem Budget abgeleitet statt einzeln
+gesetzt.
+
+**Preis:** Ein hängender Dienst wird später erkannt. Bei einem lokalen
+Modell, dessen normale Antwortzeit im Minutenbereich liegt, ist das
+unvermeidbar — es gibt keinen Schwellenwert, der „langsam" von „hängt"
+trennt.

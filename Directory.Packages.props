@@ -27,9 +27,6 @@
     <!-- CSV export. RFC 4180 handling is not worth reimplementing. -->
     <PackageVersion Include="CsvHelper" Version="33.1.0" />
 
-    <!-- Natural-language planning. -->
-    <PackageVersion Include="Anthropic" Version="12.40.0" />
-
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />

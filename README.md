@@ -25,7 +25,7 @@ flowchart TB
         Store[("Gespeicherte Abfragen<br/>und Dashboards")]
     end
 
-    Planner["Claude<br/>(strukturierte Ausgabe)"]
+    Planner["Ollama · lokales Modell<br/>(strukturierte Ausgabe)"]
 
     subgraph Semantic["Cube · semantische Schicht"]
         Views["Views: fertigung, stillstaende"]
@@ -89,7 +89,8 @@ Deshalb liegt die Fachlichkeit in `infra/cube/model/` und nirgends sonst:
 | Thema | Umsetzung |
 |---|---|
 | Kein SQL aus der Oberfläche | Es gibt keine Methode, die SQL entgegennimmt. Alles ist eine `SemanticQuery` über katalogisierte Felder. |
-| LLM-Ausgabe | Auf ein JSON-Schema beschränkt und anschließend gegen das *live* geladene Modell validiert. Unbekannte Felder werden abgelehnt, nicht ausgeführt. |
+| KI läuft lokal | Der Planner spricht ausschließlich mit Ollama im eigenen Netz. Katalog, Fachbeschreibungen und Benutzerfragen gehen an keinen externen Dienst. |
+| LLM-Ausgabe | Von Ollama auf ein JSON-Schema zwangsgeführt und anschließend gegen das *live* geladene Modell validiert. Unbekannte Felder werden abgelehnt, nicht ausgeführt. |
 | Mandantentrennung | Der Server signiert pro Anfrage ein kurzlebiges JWT mit dem Security-Context. Cube hängt in `queryRewrite` den Filter an — *nach* dem Parsen, also nicht entfernbar. |
 | Datenbankzugriff | Cube verbindet sich mit einer reinen Lese-Rolle (`cube_reader`). |
 | Metabase-Vorschau | Static Embedding mit serverseitig signiertem Token. Der Browser hält keine Metabase-Session. |
@@ -105,7 +106,8 @@ zu ersetzen ist — alles dahinter benutzt bereits diese Abstraktion.
 
 * Docker und Docker Compose
 * .NET SDK 9.0 (nur, wenn die App außerhalb von Compose laufen soll)
-* Optional ein Anthropic-API-Key für die Frageeingabe
+* Für die Frageeingabe: Ollama ≥ 0.5 (im Stack enthalten) und ausreichend
+  Arbeitsspeicher für das Modell — rund 6 GB für die 7B-Voreinstellung
 
 ---
 
@@ -182,10 +184,42 @@ Die App liegt dann auf <http://localhost:8080>, Metabase auf
 
 ### 5. Frageeingabe aktivieren (optional)
 
-`ANTHROPIC_API_KEY` in `.env` setzen (bzw. `Planner:ApiKey` per
-User-Secrets). Ohne Key bleibt die Plattform vollständig benutzbar — nur
-das Frage-Feld ist ausgeblendet, der Abfrage-Editor kann alles, was die
-Frageeingabe auch erzeugen könnte.
+Die Frageeingabe läuft über ein **lokales Modell in Ollama**. Weder der
+semantische Katalog noch die Frage des Benutzers verlässt das Netz.
+
+Einmalig das Modell holen (mehrere GB):
+
+```bash
+docker compose --profile setup up ollama-pull
+```
+
+Dann in `.env` setzen:
+
+```
+PLANNER_ENABLED=true
+PLANNER_MODEL=qwen2.5:7b-instruct
+```
+
+Läuft die App außerhalb von Compose, entsprechend `Planner:Enabled=true`
+in `appsettings.Development.json` oder per User-Secrets.
+
+**Modellwahl.** Nötig ist ein instruktionsgetuntes Modell, das sich an
+ein JSON-Schema hält. Die 7B-Klasse ist die kleinste, die zuverlässig das
+richtige Feld aus einem Fachkatalog wählt; darunter werden so viele Pläne
+von der Validierung abgelehnt, dass es stört. Mit mehr Speicher ist
+`qwen2.5:14b-instruct` spürbar treffsicherer. Ohne GPU dauert die erste
+Antwort je nach Hardware bis zu einer Minute.
+
+**Ein Wert, der wirklich passen muss:** `Planner:ContextTokens`. Ollama
+begrenzt eine Anfrage sonst auf einen kleinen Standardkontext und
+schneidet den Prompt **vorne** ab — genau dort steht der Katalog. Das
+gibt keine Fehlermeldung, sondern ein Modell, das Feldnamen erfindet.
+Der Wert muss deutlich über der Promptgröße liegen; bei einem großen
+Modell mit vielen Kennzahlen sind 16384 angebracht.
+
+Ohne aktivierte Frageeingabe bleibt die Plattform vollständig benutzbar —
+nur das Frage-Feld ist ausgeblendet. Der Abfrage-Editor kann alles, was
+die Frageeingabe auch erzeugen könnte.
 
 ---
 
@@ -284,13 +318,20 @@ Prototyps sprengen würde:
   Metabase; interne Kacheln rendern das Ergebnis als Tabelle.
 * **Pre-Aggregations sind definiert, aber nicht eingeplant.** Für große
   Datenmengen einen Refresh-Worker konfigurieren.
+* **Qualität der Frageeingabe hängt am lokalen Modell.** Ein 7B-Modell
+  trifft seltener als ein großes Cloud-Modell. Der Entwurf fängt das ab
+  — jeder Plan wird validiert, ein abgelehnter geht mit den konkreten
+  Fehlern zurück — aber manche Frage lässt sich schneller im Editor
+  zusammenstellen als umformulieren.
 
 Ehrlichkeitshinweis zur Verifikation: .NET-Build und Tests (71) laufen
 nachweislich durch, die Anwendung startet und alle Seiten rendern, und
 das Warehouse-SQL wurde gegen ein echtes PostgreSQL 16 eingespielt —
-inklusive Prüfung, dass zwei Durchläufe byte-identische Daten erzeugen. Cube und Metabase konnten in der
+inklusive Prüfung, dass zwei Durchläufe byte-identische Daten erzeugen. Cube, Metabase und Ollama konnten in der
 Entwicklungsumgebung nicht gestartet werden (kein Netzzugriff auf die
-Images), daher sind die Cube- und Metabase-Aufrufe anhand der
-dokumentierten API implementiert und über Unit-Tests der
-Datenabbildung abgesichert, aber nicht gegen laufende Instanzen erprobt.
-Beim ersten Start beider Dienste ist mit kleineren Anpassungen zu rechnen.
+Images bzw. die Modellregistry). Diese drei Anbindungen sind anhand der
+dokumentierten APIs implementiert und mit Tests gegen aufgezeichnete
+Antworten abgesichert — beim Ollama-Client inklusive des gesendeten
+Request-Formats und der Reparaturschleife. Erprobt gegen laufende
+Instanzen sind sie nicht; beim ersten Start ist mit kleineren
+Anpassungen zu rechnen.
