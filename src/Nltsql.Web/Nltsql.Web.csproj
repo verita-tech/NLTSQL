@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" />
+    <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components.Icons" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nltsql.Core\Nltsql.Core.csproj" />
+    <ProjectReference Include="..\Nltsql.Infrastructure\Nltsql.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

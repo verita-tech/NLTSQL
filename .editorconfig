@@ -38,3 +38,7 @@ dotnet_naming_style.underscore_prefix.capitalization = camel_case
 
 # Treat unused usings as warnings so CI catches them
 dotnet_diagnostic.IDE0005.severity = warning
+
+# SemanticType.String / SemanticValueType.String deliberately name the
+# data type they stand for; CA1720 has nothing useful to say here.
+dotnet_diagnostic.CA1720.severity = none

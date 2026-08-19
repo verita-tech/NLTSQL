@@ -1,0 +1,40 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UI. Pinned to 4.10.x as specified for this project. -->
+    <PackageVersion Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.10.4" />
+    <PackageVersion Include="Microsoft.FluentUI.AspNetCore.Components.Icons" Version="4.10.4" />
+
+    <!-- HTTP: typed clients with standard resilience (retry, circuit
+         breaker, timeout) instead of hand-rolled retry loops. -->
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="9.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="9.0.9" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="9.0.19" />
+
+    <!-- JWT signing for Cube security context and Metabase embed tokens. -->
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
+
+    <!-- Persistence for saved queries and dashboards. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.19" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.19" />
+
+    <!-- CSV export. RFC 4180 handling is not worth reimplementing. -->
+    <PackageVersion Include="CsvHelper" Version="33.1.0" />
+
+    <!-- Natural-language planning. -->
+    <PackageVersion Include="Anthropic" Version="12.40.0" />
+
+    <!-- Testing -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+  </ItemGroup>
+
+</Project>
