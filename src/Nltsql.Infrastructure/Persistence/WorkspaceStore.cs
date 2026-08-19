@@ -128,7 +128,9 @@ public sealed class WorkspaceStore(AppDbContext db, ITenantContext tenant, TimeP
             return;
         }
 
-        dashboard.Tiles.Add(new DashboardTile
+        // Added through the set rather than the navigation collection, so
+        // the intent to insert is explicit rather than inferred.
+        db.DashboardTiles.Add(new DashboardTile
         {
             DashboardId = dashboardId,
             SavedQueryId = savedQueryId,

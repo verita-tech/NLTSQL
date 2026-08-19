@@ -22,14 +22,29 @@
     definiert und liefern hier, im Diagramm und in Metabase denselben Wert.
 </p>
 
-@if (_model is null)
+@if (_modelError is not null)
+{
+    <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">
+        Die semantische Schicht ist nicht erreichbar, daher steht derzeit kein Datenmodell zur Verfügung.
+        <br />
+        <span class="muted">@_modelError</span>
+        <br />
+        Prüfen Sie, ob Cube läuft (<code>docker compose ps</code>) und ob Cube:BaseUrl und
+        Cube:ApiSecret zur Umgebung passen.
+    </FluentMessageBar>
+
+    <FluentButton Appearance="Appearance.Accent" Style="margin-top:1rem" OnClick="ReloadModelAsync">
+        Erneut versuchen
+    </FluentButton>
+}
+else if (_model is null)
 {
     <FluentProgressRing />
 }
 else if (_model.Views.Count == 0)
 {
     <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">
-        Das semantische Modell ist leer oder nicht erreichbar. Läuft Cube, und stimmt Cube:ApiSecret?
+        Das semantische Modell enthält keine Datenbereiche. Prüfen Sie das Modell unter infra/cube/model.
     </FluentMessageBar>
 }
 else
@@ -154,6 +169,7 @@ else
     public Guid? SavedQueryId { get; set; }
 
     private SemanticModel? _model;
+    private string? _modelError;
     private SemanticQuery _query = new() { View = string.Empty };
     private QueryResultSet? _result;
     private ChartPanel? _chartPanel;
@@ -176,7 +192,15 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        _model ??= await SemanticLayer.GetModelAsync();
+        if (_model is null)
+        {
+            await ReloadModelAsync();
+        }
+
+        if (_model is null)
+        {
+            return;
+        }
 
         if (SavedQueryId is { } id && id != _savedQueryId)
         {
@@ -185,6 +209,24 @@ else
         else if (string.IsNullOrEmpty(_query.View))
         {
             _query = _query with { View = _model.Views.FirstOrDefault()?.Name ?? string.Empty };
+        }
+    }
+
+    /// <summary>
+    /// Loads the catalogue, turning an unreachable Cube into a message
+    /// the user can act on rather than an unhandled exception.
+    /// </summary>
+    private async Task ReloadModelAsync()
+    {
+        try
+        {
+            _model = await SemanticLayer.GetModelAsync();
+            _modelError = null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _model = null;
+            _modelError = exception.Message;
         }
     }
 

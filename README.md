@@ -285,9 +285,10 @@ Prototyps sprengen würde:
 * **Pre-Aggregations sind definiert, aber nicht eingeplant.** Für große
   Datenmengen einen Refresh-Worker konfigurieren.
 
-Ehrlichkeitshinweis zur Verifikation: .NET-Build und Tests laufen
-nachweislich durch, das Warehouse-SQL wurde gegen ein echtes PostgreSQL
-16 eingespielt und geprüft. Cube und Metabase konnten in der
+Ehrlichkeitshinweis zur Verifikation: .NET-Build und Tests (71) laufen
+nachweislich durch, die Anwendung startet und alle Seiten rendern, und
+das Warehouse-SQL wurde gegen ein echtes PostgreSQL 16 eingespielt —
+inklusive Prüfung, dass zwei Durchläufe byte-identische Daten erzeugen. Cube und Metabase konnten in der
 Entwicklungsumgebung nicht gestartet werden (kein Netzzugriff auf die
 Images), daher sind die Cube- und Metabase-Aufrufe anhand der
 dokumentierten API implementiert und über Unit-Tests der

@@ -10,7 +10,13 @@
     semantischen Schicht, nicht aus dieser Anwendung.
 </p>
 
-@if (_model is null)
+@if (_error is not null)
+{
+    <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">
+        Das Modell konnte nicht geladen werden: @_error
+    </FluentMessageBar>
+}
+else if (_model is null)
 {
     <FluentProgressRing />
 }
@@ -58,6 +64,17 @@ else
 
 @code {
     private SemanticModel? _model;
+    private string? _error;
 
-    protected override async Task OnInitializedAsync() => _model = await SemanticLayer.GetModelAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _model = await SemanticLayer.GetModelAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _error = exception.Message;
+        }
+    }
 }
