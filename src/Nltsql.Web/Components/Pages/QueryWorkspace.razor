@@ -1,0 +1,361 @@
+@page "/"
+@page "/abfrage/{SavedQueryId:guid}"
+
+@using Nltsql.Infrastructure.Persistence
+@using Nltsql.Web.Services
+
+@inject ISemanticLayer SemanticLayer
+@inject IQueryPlanner Planner
+@inject WorkspaceStore Workspace
+@inject ExportTicketStore ExportTickets
+@inject ITenantContext Tenant
+@inject IDialogService Dialogs
+@inject IToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>Abfrage</PageTitle>
+
+<h1>Abfrage</h1>
+<p class="page-intro">
+    Stellen Sie eine Frage oder stellen Sie die Abfrage selbst zusammen. Ausgewertet wird
+    ausschließlich über die semantische Schicht — Kennzahlen wie die OEE sind dort einmal
+    definiert und liefern hier, im Diagramm und in Metabase denselben Wert.
+</p>
+
+@if (_model is null)
+{
+    <FluentProgressRing />
+}
+else if (_model.Views.Count == 0)
+{
+    <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">
+        Das semantische Modell ist leer oder nicht erreichbar. Läuft Cube, und stimmt Cube:ApiSecret?
+    </FluentMessageBar>
+}
+else
+{
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="20">
+
+        @* ------------------------------------------------ question box *@
+        @if (Planner.IsAvailable)
+        {
+            <FluentCard>
+                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                    <FluentLabel Typo="Typography.Subject">Frage in eigenen Worten</FluentLabel>
+
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8"
+                                 VerticalAlignment="VerticalAlignment.Bottom">
+                        <FluentTextField @bind-Value="_question"
+                                         Placeholder="z. B. OEE je Maschine in den letzten 30 Tagen"
+                                         Style="flex:1"
+                                         @onkeydown="OnQuestionKeyDownAsync" />
+
+                        <FluentButton Appearance="Appearance.Accent"
+                                      Loading="_planning"
+                                      IconStart="@(new Icons.Regular.Size16.Sparkle())"
+                                      OnClick="PlanAsync">
+                            Abfrage erzeugen
+                        </FluentButton>
+                    </FluentStack>
+
+                    @if (_interpretation is not null)
+                    {
+                        <FluentMessageBar Intent="MessageIntent.Success" AllowDismiss="false">
+                            Verstanden als: @_interpretation
+                            <br />
+                            <span class="muted">
+                                Prüfen Sie die Abfrage unten, bevor Sie das Ergebnis weiterverwenden.
+                            </span>
+                        </FluentMessageBar>
+                    }
+
+                    @if (_planningError is not null)
+                    {
+                        <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">
+                            @_planningError
+                        </FluentMessageBar>
+                    }
+                </FluentStack>
+            </FluentCard>
+        }
+
+        @* --------------------------------------------------- the query *@
+        <FluentCard>
+            <QueryEditor Model="_model" Query="_query" QueryChanged="OnQueryChangedAsync" />
+
+            <FluentDivider Style="margin:1rem 0" />
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" Wrap="true">
+                <FluentButton Appearance="Appearance.Accent"
+                              Loading="_running"
+                              IconStart="@(new Icons.Regular.Size16.Play())"
+                              OnClick="RunAsync">
+                    Ausführen
+                </FluentButton>
+
+                <FluentButton Appearance="Appearance.Neutral"
+                              Disabled="@(_result is null)"
+                              IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                              OnClick="ExportCsvAsync">
+                    CSV-Export
+                </FluentButton>
+
+                <FluentButton Appearance="Appearance.Neutral"
+                              Disabled="@(_result is null)"
+                              IconStart="@(new Icons.Regular.Size16.Save())"
+                              OnClick="SaveAsync">
+                    @(_savedQueryId is null ? "Speichern" : "Speichern (aktualisieren)")
+                </FluentButton>
+            </FluentStack>
+
+            @if (_validationErrors.Count > 0)
+            {
+                <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false" Style="margin-top:1rem">
+                    <ul style="margin:0;padding-left:1.2rem">
+                        @foreach (var error in _validationErrors)
+                        {
+                            <li>@error.Message</li>
+                        }
+                    </ul>
+                </FluentMessageBar>
+            }
+
+            @if (_runError is not null)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Style="margin-top:1rem">
+                    @_runError
+                </FluentMessageBar>
+            }
+        </FluentCard>
+
+        @* ------------------------------------------------- the answer *@
+        @if (_result is not null)
+        {
+            <FluentCard>
+                <FluentLabel Typo="Typography.Subject" Style="margin-bottom:.75rem">Ergebnis</FluentLabel>
+                <ResultTable Result="_result" />
+            </FluentCard>
+
+            <FluentCard>
+                <FluentLabel Typo="Typography.Subject" Style="margin-bottom:.75rem">Diagramm</FluentLabel>
+                <ChartPanel @ref="_chartPanel"
+                            Query="_query"
+                            Title="@ChartTitle"
+                            ChartType="_chartType"
+                            ChartTypeChanged="@(t => _chartType = t)"
+                            CardPublished="@(id => _metabaseCardId = id)" />
+            </FluentCard>
+        }
+    </FluentStack>
+}
+
+@code {
+    [Parameter]
+    public Guid? SavedQueryId { get; set; }
+
+    private SemanticModel? _model;
+    private SemanticQuery _query = new() { View = string.Empty };
+    private QueryResultSet? _result;
+    private ChartPanel? _chartPanel;
+
+    private string _question = string.Empty;
+    private string? _interpretation;
+    private string? _planningError;
+    private string? _runError;
+    private IReadOnlyList<ValidationError> _validationErrors = [];
+
+    private ChartType _chartType = ChartType.Table;
+    private Guid? _savedQueryId;
+    private int? _metabaseCardId;
+    private string _title = "Abfrage";
+
+    private bool _planning;
+    private bool _running;
+
+    private string ChartTitle => string.IsNullOrWhiteSpace(_title) ? "Abfrage" : _title;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _model ??= await SemanticLayer.GetModelAsync();
+
+        if (SavedQueryId is { } id && id != _savedQueryId)
+        {
+            await LoadSavedAsync(id);
+        }
+        else if (string.IsNullOrEmpty(_query.View))
+        {
+            _query = _query with { View = _model.Views.FirstOrDefault()?.Name ?? string.Empty };
+        }
+    }
+
+    private async Task LoadSavedAsync(Guid id)
+    {
+        var saved = await Workspace.GetSavedQueryAsync(id);
+        var query = saved?.ToQuery();
+
+        if (saved is null || query is null)
+        {
+            Toasts.ShowError("Die gespeicherte Abfrage wurde nicht gefunden.");
+            return;
+        }
+
+        _savedQueryId = saved.Id;
+        _query = query;
+        _title = saved.Title;
+        _chartType = saved.ChartType;
+        _metabaseCardId = saved.MetabaseCardId;
+        _question = saved.Question ?? string.Empty;
+
+        // Saved queries are re-executed on open, never restored from a
+        // cached result, so the tile always reflects current data.
+        await RunAsync();
+    }
+
+    private async Task OnQuestionKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !_planning)
+        {
+            await PlanAsync();
+        }
+    }
+
+    private async Task PlanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_question) || _model is null)
+        {
+            return;
+        }
+
+        _planning = true;
+        _planningError = null;
+        _interpretation = null;
+
+        try
+        {
+            var plan = await Planner.PlanAsync(_question, _model);
+
+            if (!plan.IsSuccess)
+            {
+                _planningError = plan.Failure;
+                return;
+            }
+
+            _query = plan.Query!;
+            _interpretation = plan.Interpretation;
+            _title = _question.Length > 80 ? _question[..80] : _question;
+
+            // A generated query is only useful once it has an answer
+            // attached, so run it straight away.
+            _chartType = ChartTypeSelector.Suggest(_query);
+            await RunAsync();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _planningError = $"Die Frage konnte nicht verarbeitet werden: {exception.Message}";
+        }
+        finally
+        {
+            _planning = false;
+        }
+    }
+
+    private Task OnQueryChangedAsync(SemanticQuery query)
+    {
+        _query = query;
+
+        // Any edit invalidates the answer on screen; showing an old table
+        // next to a changed query is how people end up quoting a number
+        // that was never computed.
+        _result = null;
+        _validationErrors = [];
+        _chartPanel?.Reset();
+
+        return Task.CompletedTask;
+    }
+
+    private async Task RunAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        _running = true;
+        _runError = null;
+
+        var validation = SemanticQueryValidator.Validate(_query, _model);
+        _validationErrors = validation.Errors;
+
+        if (!validation.IsValid)
+        {
+            _result = null;
+            _running = false;
+            return;
+        }
+
+        try
+        {
+            _result = await SemanticLayer.ExecuteAsync(_query);
+
+            if (_chartType == ChartType.Table)
+            {
+                _chartType = ChartTypeSelector.Suggest(_query);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _result = null;
+            _runError = $"Die Abfrage ist fehlgeschlagen: {exception.Message}";
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    private Task ExportCsvAsync()
+    {
+        // The browser fetches the file itself; the ticket keeps the query
+        // out of the URL and scopes the download to this tenant.
+        var ticket = ExportTickets.Issue(Tenant.TenantId, _query, ChartTitle);
+
+        Navigation.NavigateTo($"/export/ticket/{ticket}", forceLoad: true);
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveAsync()
+    {
+        var model = new SaveQueryModel { Title = ChartTitle };
+
+        var dialog = await Dialogs.ShowDialogAsync<SaveQueryDialog>(model, new DialogParameters
+        {
+            Title = "Abfrage speichern",
+            PrimaryAction = "Speichern",
+            SecondaryAction = "Abbrechen",
+            Width = "480px",
+        });
+
+        var result = await dialog.Result;
+
+        if (result.Cancelled || result.Data is not SaveQueryModel data || string.IsNullOrWhiteSpace(data.Title))
+        {
+            return;
+        }
+
+        var saved = await Workspace.SaveQueryAsync(new SaveQueryRequest
+        {
+            Id = _savedQueryId,
+            Title = data.Title,
+            Description = data.Description,
+            Question = string.IsNullOrWhiteSpace(_question) ? null : _question,
+            Query = _query,
+            ChartType = _chartType,
+            MetabaseCardId = _metabaseCardId,
+        });
+
+        _savedQueryId = saved.Id;
+        _title = saved.Title;
+
+        Toasts.ShowSuccess($"\"{saved.Title}\" gespeichert.");
+    }
+}

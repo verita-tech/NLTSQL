@@ -1,0 +1,205 @@
+@inject IChartGateway ChartGateway
+@inject IToastService Toasts
+
+@*
+    Metabase preview and hand-off.
+
+    The chart is rendered by Metabase itself through a signed static
+    embed, not reimplemented here. That is what makes "weiter in Metabase
+    filtern" a genuine continuation of the same question rather than a
+    second, subtly different chart.
+*@
+
+<FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+
+    @if (!ChartGateway.IsAvailable)
+    {
+        <FluentMessageBar Intent="MessageIntent.Info" AllowDismiss="false">
+            Die Metabase-Anbindung ist nicht konfiguriert. Tabelle und CSV-Export stehen zur Verfügung;
+            für die Diagrammvorschau hinterlegen Sie Metabase:ApiKey, Metabase:EmbeddingSecretKey
+            und Metabase:CubeDatabaseId.
+        </FluentMessageBar>
+    }
+    else
+    {
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12" Wrap="true"
+                     VerticalAlignment="VerticalAlignment.Bottom">
+            <FluentSelect TOption="ChartType"
+                          Label="Diagrammtyp"
+                          Items="ChartTypes"
+                          OptionValue="@(t => t.ToString())"
+                          OptionText="@(t => t.ToGermanLabel())"
+                          SelectedOption="ChartType"
+                          SelectedOptionChanged="OnChartTypeChangedAsync" />
+
+            <FluentButton Appearance="Appearance.Accent"
+                          Loading="_publishing"
+                          IconStart="@(new Icons.Regular.Size16.ChartMultiple())"
+                          OnClick="PublishAsync">
+                @(_preview is null ? "Diagrammvorschau erzeugen" : "Vorschau aktualisieren")
+            </FluentButton>
+
+            @if (_preview is not null)
+            {
+                <FluentAnchor Appearance="Appearance.Stealth"
+                              Href="@_preview.QuestionUrl"
+                              Target="_blank"
+                              IconStart="@(new Icons.Regular.Size16.Open())">
+                    In Metabase öffnen
+                </FluentAnchor>
+            }
+        </FluentStack>
+
+        @if (_error is not null)
+        {
+            <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@_error</FluentMessageBar>
+        }
+
+        @if (_preview is not null)
+        {
+            @* Metabase renders the chart inside the frame; the token in
+               the URL is what authorises exactly this one question. *@
+            <iframe class="chart-frame"
+                    title="Diagrammvorschau"
+                    src="@_preview.EmbedUrl"
+                    frameborder="0"
+                    allowtransparency="true"></iframe>
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12" Wrap="true"
+                         VerticalAlignment="VerticalAlignment.Bottom">
+                <FluentSelect TOption="MetabaseDashboard"
+                              Label="Metabase-Dashboard"
+                              Items="_dashboards"
+                              OptionValue="@(d => d.Id.ToString(CultureInfo.InvariantCulture))"
+                              OptionText="@(d => d.Name)"
+                              SelectedOption="_selectedDashboard"
+                              SelectedOptionChanged="@(d => _selectedDashboard = d)" />
+
+                <FluentButton Appearance="Appearance.Neutral"
+                              Disabled="@(_selectedDashboard is null)"
+                              Loading="_addingToDashboard"
+                              IconStart="@(new Icons.Regular.Size16.BoardSplit())"
+                              OnClick="AddToDashboardAsync">
+                    Zum Metabase-Dashboard hinzufügen
+                </FluentButton>
+            </FluentStack>
+
+            <FluentAccordion>
+                <FluentAccordionItem Heading="Erzeugtes SQL (semantische Schicht)">
+                    <p class="muted">
+                        Die Abfrage läuft gegen die Cube-SQL-Schnittstelle, nicht gegen die Datenbank.
+                        Kennzahlen bleiben dadurch auch in Metabase so definiert wie im Modell.
+                    </p>
+                    <pre class="sql-block">@_preview.GeneratedSql</pre>
+                </FluentAccordionItem>
+            </FluentAccordion>
+        }
+    }
+</FluentStack>
+
+@code {
+    private static readonly ChartType[] ChartTypes = Enum.GetValues<ChartType>();
+
+    [Parameter, EditorRequired]
+    public required SemanticQuery Query { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string Title { get; set; }
+
+    [Parameter]
+    public ChartType ChartType { get; set; } = ChartType.Table;
+
+    [Parameter]
+    public EventCallback<ChartType> ChartTypeChanged { get; set; }
+
+    /// <summary>Raised once a card exists, so the page can save its id.</summary>
+    [Parameter]
+    public EventCallback<int> CardPublished { get; set; }
+
+    private ChartPreview? _preview;
+    private IReadOnlyList<MetabaseDashboard> _dashboards = [];
+    private MetabaseDashboard? _selectedDashboard;
+    private bool _publishing;
+    private bool _addingToDashboard;
+    private string? _error;
+
+    /// <summary>Reuses the existing card so repeated previews do not litter Metabase.</summary>
+    private int? _cardId;
+
+    private async Task OnChartTypeChangedAsync(ChartType chartType)
+    {
+        ChartType = chartType;
+        await ChartTypeChanged.InvokeAsync(chartType);
+
+        // A visible preview should follow the chosen type immediately.
+        if (_preview is not null)
+        {
+            await PublishAsync();
+        }
+    }
+
+    private async Task PublishAsync()
+    {
+        _publishing = true;
+        _error = null;
+
+        try
+        {
+            _preview = await ChartGateway.PublishAsync(new ChartPublishRequest
+            {
+                Query = Query,
+                Title = Title,
+                Description = "Erzeugt aus der Datenabfrage-Plattform.",
+                ChartType = ChartType,
+                ExistingCardId = _cardId,
+            });
+
+            _cardId = _preview.CardId;
+            await CardPublished.InvokeAsync(_preview.CardId);
+
+            _dashboards = await ChartGateway.GetDashboardsAsync();
+            _selectedDashboard ??= _dashboards.FirstOrDefault();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _error = $"Die Vorschau konnte nicht erzeugt werden: {exception.Message}";
+            _preview = null;
+        }
+        finally
+        {
+            _publishing = false;
+        }
+    }
+
+    private async Task AddToDashboardAsync()
+    {
+        if (_selectedDashboard is null || _preview is null)
+        {
+            return;
+        }
+
+        _addingToDashboard = true;
+
+        try
+        {
+            await ChartGateway.AddCardToDashboardAsync(_selectedDashboard.Id, _preview.CardId);
+
+            Toasts.ShowSuccess($"Zum Dashboard \"{_selectedDashboard.Name}\" hinzugefügt.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Toasts.ShowError($"Hinzufügen fehlgeschlagen: {exception.Message}");
+        }
+        finally
+        {
+            _addingToDashboard = false;
+        }
+    }
+
+    /// <summary>Drops the preview when the query changes underneath it.</summary>
+    public void Reset()
+    {
+        _preview = null;
+        _error = null;
+    }
+}

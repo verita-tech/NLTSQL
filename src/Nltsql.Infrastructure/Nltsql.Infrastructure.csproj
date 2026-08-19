@@ -14,4 +14,10 @@
     <ProjectReference Include="..\Nltsql.Core\Nltsql.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The Cube wire-format mappers are internal, but they are exactly
+         where an assumption about someone else's JSON can rot silently. -->
+    <InternalsVisibleTo Include="Nltsql.Tests" />
+  </ItemGroup>
+
 </Project>

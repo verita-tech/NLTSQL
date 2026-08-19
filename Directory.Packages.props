@@ -13,7 +13,7 @@
     <!-- HTTP: typed clients with standard resilience (retry, circuit
          breaker, timeout) instead of hand-rolled retry loops. -->
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="9.10.0" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="9.0.9" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="9.0.19" />
     <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="9.0.19" />
 
     <!-- JWT signing for Cube security context and Metabase embed tokens. -->
@@ -22,6 +22,7 @@
     <!-- Persistence for saved queries and dashboards. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.19" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.19" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="9.0.19" />
 
     <!-- CSV export. RFC 4180 handling is not worth reimplementing. -->
     <PackageVersion Include="CsvHelper" Version="33.1.0" />

@@ -1,0 +1,387 @@
+@*
+    Structured query builder.
+
+    Everything the natural-language box can produce is reachable here by
+    hand. That matters for two reasons: the app stays fully usable with
+    no model configured, and a user who was misunderstood can correct the
+    query instead of rephrasing and hoping.
+*@
+
+@if (View is null)
+{
+    <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">
+        Es ist kein Datenbereich verfügbar. Prüfen Sie die Verbindung zur semantischen Schicht.
+    </FluentMessageBar>
+}
+else
+{
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+
+        <FluentSelect TOption="SelectOption"
+                      Label="Datenbereich"
+                      Items="ViewOptions"
+                      OptionValue="@(o => o.Value)"
+                      OptionText="@(o => o.Label)"
+                      Value="@Query.View"
+                      ValueChanged="OnViewChangedAsync" />
+
+        @if (!string.IsNullOrWhiteSpace(View.Description))
+        {
+            <p class="muted" style="margin:0">@View.Description</p>
+        }
+
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="24" Wrap="true">
+            <div style="min-width:280px;flex:1">
+                <FluentLabel Typo="Typography.Subject">Kennzahlen</FluentLabel>
+                <div class="result-scroll" style="max-height:220px;padding:.5rem">
+                    @foreach (var measure in View.Measures)
+                    {
+                        <FluentCheckbox Value="@Query.Measures.Contains(measure.Name)"
+                                        ValueChanged="@(v => ToggleMeasureAsync(measure.Name, v))"
+                                        Label="@measure.Title"
+                                        title="@Describe(measure)" />
+                    }
+                </div>
+            </div>
+
+            <div style="min-width:280px;flex:1">
+                <FluentLabel Typo="Typography.Subject">Merkmale (Gruppierung)</FluentLabel>
+                <div class="result-scroll" style="max-height:220px;padding:.5rem">
+                    @foreach (var dimension in View.Dimensions.Where(d => d.Type != SemanticType.Time))
+                    {
+                        <FluentCheckbox Value="@Query.Dimensions.Contains(dimension.Name)"
+                                        ValueChanged="@(v => ToggleDimensionAsync(dimension.Name, v))"
+                                        Label="@dimension.Title"
+                                        title="@Describe(dimension)" />
+                    }
+                </div>
+            </div>
+        </FluentStack>
+
+        <FluentDivider />
+
+        <FluentLabel Typo="Typography.Subject">Zeitraum</FluentLabel>
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12" Wrap="true">
+            <FluentSelect TOption="SelectOption"
+                          Label="Zeitmerkmal"
+                          Items="TimeDimensionOptions"
+                          OptionValue="@(o => o.Value)"
+                          OptionText="@(o => o.Label)"
+                          Value="@(Query.TimeDimension?.Dimension ?? string.Empty)"
+                          ValueChanged="OnTimeDimensionChangedAsync" />
+
+            <FluentSelect TOption="SelectOption"
+                          Label="Zeitraum"
+                          Disabled="@(Query.TimeDimension is null)"
+                          Items="RangeOptions"
+                          OptionValue="@(o => o.Value)"
+                          OptionText="@(o => o.Label)"
+                          Value="@CurrentRange"
+                          ValueChanged="OnRangeChangedAsync" />
+
+            <FluentSelect TOption="SelectOption"
+                          Label="Zeitliche Auflösung"
+                          Disabled="@(Query.TimeDimension is null)"
+                          Items="GranularityOptions"
+                          OptionValue="@(o => o.Value)"
+                          OptionText="@(o => o.Label)"
+                          Value="@(Query.TimeDimension?.Granularity?.ToString() ?? string.Empty)"
+                          ValueChanged="OnGranularityChangedAsync" />
+        </FluentStack>
+
+        @if (Query.TimeDimension is not null && Query.TimeDimension.Granularity is null)
+        {
+            <p class="muted" style="margin:0">
+                Ohne Auflösung wird der Zeitraum nur gefiltert, nicht in Perioden zerlegt.
+            </p>
+        }
+
+        <FluentDivider />
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="justify-content:space-between;width:100%">
+            <FluentLabel Typo="Typography.Subject">Filter</FluentLabel>
+            <FluentButton Appearance="Appearance.Stealth"
+                          IconStart="@(new Icons.Regular.Size16.Add())"
+                          OnClick="AddFilterAsync">
+                Filter hinzufügen
+            </FluentButton>
+        </FluentStack>
+
+        @foreach (var (filter, index) in Query.Filters.Select((f, i) => (f, i)))
+        {
+            <div class="filter-row">
+                <FluentSelect TOption="SelectOption"
+                              Label="Feld"
+                              Items="FilterMemberOptions"
+                              OptionValue="@(o => o.Value)"
+                              OptionText="@(o => o.Label)"
+                              Value="@filter.Member"
+                              ValueChanged="@(v => UpdateFilterAsync(index, member: v))" />
+
+                <FluentSelect TOption="SelectOption"
+                              Label="Operator"
+                              Items="@OperatorOptionsFor(filter.Member)"
+                              OptionValue="@(o => o.Value)"
+                              OptionText="@(o => o.Label)"
+                              Value="@filter.Operator.ToString()"
+                              ValueChanged="@(v => UpdateFilterAsync(index, op: v))" />
+
+                @if (!QueryFilter.IsUnary(filter.Operator))
+                {
+                    <FluentTextField Label="Wert(e), mit Semikolon getrennt"
+                                     Value="@string.Join("; ", filter.Values)"
+                                     ValueChanged="@(v => UpdateFilterAsync(index, values: v))"
+                                     Style="min-width:260px" />
+                }
+
+                <FluentButton Appearance="Appearance.Stealth"
+                              IconStart="@(new Icons.Regular.Size16.Delete())"
+                              Title="Filter entfernen"
+                              OnClick="@(() => RemoveFilterAsync(index))" />
+            </div>
+        }
+
+        <FluentDivider />
+
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12" Wrap="true">
+            <FluentSelect TOption="SelectOption"
+                          Label="Sortierung"
+                          Items="SortOptions"
+                          OptionValue="@(o => o.Value)"
+                          OptionText="@(o => o.Label)"
+                          Value="@(Query.Order.FirstOrDefault()?.Member ?? string.Empty)"
+                          ValueChanged="OnSortChangedAsync" />
+
+            <FluentNumberField TValue="int"
+                               Label="Max. Zeilen"
+                               Min="1"
+                               Max="@MaxRowsText"
+                               Value="@Query.Limit"
+                               ValueChanged="OnLimitChangedAsync" />
+        </FluentStack>
+    </FluentStack>
+}
+
+@code {
+    /// <summary>FluentNumberField takes its bounds as strings.</summary>
+    private static readonly string MaxRowsText =
+        QueryLimits.MaxRows.ToString(CultureInfo.InvariantCulture);
+
+    [Parameter, EditorRequired]
+    public required SemanticModel Model { get; set; }
+
+    [Parameter, EditorRequired]
+    public required SemanticQuery Query { get; set; }
+
+    [Parameter]
+    public EventCallback<SemanticQuery> QueryChanged { get; set; }
+
+    private SemanticView? View => Model.FindView(Query.View);
+
+    private IEnumerable<SelectOption> ViewOptions =>
+        Model.Views.Select(v => new SelectOption(v.Name, v.Title));
+
+    private IEnumerable<SelectOption> TimeDimensionOptions =>
+        Prepend("(kein Zeitbezug)", View!.TimeDimensions.Select(d => new SelectOption(d.Name, d.Title)));
+
+    private IEnumerable<SelectOption> GranularityOptions =>
+        Prepend("(ohne Auflösung)", new[]
+        {
+            new SelectOption(nameof(TimeGranularity.Day), "Tag"),
+            new SelectOption(nameof(TimeGranularity.Week), "Woche"),
+            new SelectOption(nameof(TimeGranularity.Month), "Monat"),
+            new SelectOption(nameof(TimeGranularity.Quarter), "Quartal"),
+            new SelectOption(nameof(TimeGranularity.Year), "Jahr"),
+        });
+
+    private static IEnumerable<SelectOption> RangeOptions =>
+        Enum.GetValues<RelativeDateRange>()
+            .Select(r => new SelectOption(r.ToString(), Nltsql.Core.Sql.RelativeRange.ToGermanLabel(r)));
+
+    private IEnumerable<SelectOption> FilterMemberOptions =>
+        View!.Dimensions.Select(d => new SelectOption(d.Name, d.Title))
+            .Concat(View.Measures.Select(m => new SelectOption(m.Name, $"{m.Title} (Kennzahl)")));
+
+    private IEnumerable<SelectOption> SortOptions =>
+        Prepend("(Standard)", Query.SelectedMembers
+            .Select(m => new SelectOption(m, View!.FindMember(m)?.Title ?? m)));
+
+    /// <summary>Only offers operators that make sense for the member's type.</summary>
+    private IEnumerable<SelectOption> OperatorOptionsFor(string member)
+    {
+        var type = View!.FindMember(member)?.Type ?? SemanticType.String;
+
+        var operators = new List<(FilterOperator Op, string Label)>
+        {
+            (FilterOperator.Equals, "ist"),
+            (FilterOperator.NotEquals, "ist nicht"),
+        };
+
+        if (type == SemanticType.String)
+        {
+            operators.Add((FilterOperator.Contains, "enthält"));
+            operators.Add((FilterOperator.NotContains, "enthält nicht"));
+            operators.Add((FilterOperator.StartsWith, "beginnt mit"));
+        }
+
+        if (type is SemanticType.Number or SemanticType.Time)
+        {
+            operators.Add((FilterOperator.GreaterThan, "größer als"));
+            operators.Add((FilterOperator.GreaterThanOrEqual, "größer/gleich"));
+            operators.Add((FilterOperator.LessThan, "kleiner als"));
+            operators.Add((FilterOperator.LessThanOrEqual, "kleiner/gleich"));
+        }
+
+        operators.Add((FilterOperator.Set, "ist gesetzt"));
+        operators.Add((FilterOperator.NotSet, "ist nicht gesetzt"));
+
+        return operators.Select(o => new SelectOption(o.Op.ToString(), o.Label));
+    }
+
+    private string CurrentRange => Query.TimeDimension?.DateRange?.Relative?.ToString() ?? string.Empty;
+
+    private static string Describe(SemanticMember member) =>
+        string.IsNullOrWhiteSpace(member.Description) ? member.Name : member.Description;
+
+    private static IEnumerable<SelectOption> Prepend(string label, IEnumerable<SelectOption> options) =>
+        new[] { new SelectOption(string.Empty, label) }.Concat(options);
+
+    // ------------------------------------------------------------ edits
+
+    private Task OnViewChangedAsync(string? view)
+    {
+        // Members belong to a view, so switching views has to start over
+        // rather than carry names that no longer resolve.
+        return EmitAsync(new SemanticQuery { View = view ?? string.Empty, Limit = Query.Limit });
+    }
+
+    private Task ToggleMeasureAsync(string name, bool selected) =>
+        EmitAsync(Query with { Measures = Toggle(Query.Measures, name, selected) });
+
+    private Task ToggleDimensionAsync(string name, bool selected) =>
+        EmitAsync(Query with { Dimensions = Toggle(Query.Dimensions, name, selected) });
+
+    private Task OnTimeDimensionChangedAsync(string? dimension) =>
+        EmitAsync(Query with
+        {
+            TimeDimension = string.IsNullOrEmpty(dimension)
+                ? null
+                : new QueryTimeDimension
+                {
+                    Dimension = dimension,
+                    Granularity = Query.TimeDimension?.Granularity,
+                    DateRange = Query.TimeDimension?.DateRange
+                        ?? QueryDateRange.Of(RelativeDateRange.Last30Days),
+                },
+        });
+
+    private Task OnRangeChangedAsync(string? range)
+    {
+        if (Query.TimeDimension is null || !Enum.TryParse<RelativeDateRange>(range, out var parsed))
+        {
+            return Task.CompletedTask;
+        }
+
+        return EmitAsync(Query with
+        {
+            TimeDimension = Query.TimeDimension with { DateRange = QueryDateRange.Of(parsed) },
+        });
+    }
+
+    private Task OnGranularityChangedAsync(string? granularity)
+    {
+        if (Query.TimeDimension is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return EmitAsync(Query with
+        {
+            TimeDimension = Query.TimeDimension with
+            {
+                Granularity = Enum.TryParse<TimeGranularity>(granularity, out var parsed) ? parsed : null,
+            },
+        });
+    }
+
+    private Task AddFilterAsync()
+    {
+        var member = View!.Dimensions.FirstOrDefault()?.Name;
+        if (member is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return EmitAsync(Query with
+        {
+            Filters = [.. Query.Filters, new QueryFilter { Member = member, Operator = FilterOperator.Equals }],
+        });
+    }
+
+    private Task UpdateFilterAsync(int index, string? member = null, string? op = null, string? values = null)
+    {
+        var filters = Query.Filters.ToList();
+        var filter = filters[index];
+
+        if (member is not null)
+        {
+            // The previous operator may not apply to the new member's type.
+            filter = filter with { Member = member, Operator = FilterOperator.Equals };
+        }
+
+        if (op is not null && Enum.TryParse<FilterOperator>(op, out var parsed))
+        {
+            filter = filter with { Operator = parsed };
+        }
+
+        if (values is not null)
+        {
+            filter = filter with
+            {
+                Values = values.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            };
+        }
+
+        filters[index] = filter;
+        return EmitAsync(Query with { Filters = filters });
+    }
+
+    private Task RemoveFilterAsync(int index)
+    {
+        var filters = Query.Filters.ToList();
+        filters.RemoveAt(index);
+
+        return EmitAsync(Query with { Filters = filters });
+    }
+
+    private Task OnSortChangedAsync(string? member) =>
+        EmitAsync(Query with
+        {
+            Order = string.IsNullOrEmpty(member)
+                ? []
+                : [new QueryOrder { Member = member, Direction = Nltsql.Core.Queries.SortDirection.Descending }],
+        });
+
+    private Task OnLimitChangedAsync(int limit) =>
+        EmitAsync(Query with { Limit = Math.Clamp(limit, 1, QueryLimits.MaxRows) });
+
+    private static List<string> Toggle(IReadOnlyList<string> names, string name, bool selected)
+    {
+        var result = names.ToList();
+
+        if (selected && !result.Contains(name))
+        {
+            result.Add(name);
+        }
+        else if (!selected)
+        {
+            result.Remove(name);
+        }
+
+        return result;
+    }
+
+    private Task EmitAsync(SemanticQuery query) => QueryChanged.InvokeAsync(query);
+
+    public sealed record SelectOption(string Value, string Label);
+}

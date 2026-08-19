@@ -1,0 +1,20 @@
+@implements IDialogContentComponent<SaveQueryModel>
+
+<FluentDialogBody>
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+        <FluentTextField @bind-Value="Content.Title"
+                         Label="Name des Dashboards"
+                         Required="true"
+                         Style="width:100%" />
+
+        <FluentTextArea @bind-Value="Content.Description"
+                        Label="Beschreibung (optional)"
+                        Rows="3"
+                        Style="width:100%" />
+    </FluentStack>
+</FluentDialogBody>
+
+@code {
+    [Parameter]
+    public SaveQueryModel Content { get; set; } = new();
+}
