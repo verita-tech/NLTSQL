@@ -1,0 +1,44 @@
+# Views are the public contract of the semantic layer.
+#
+# Everything downstream — the Blazor app, the NL planner and Metabase via
+# the SQL API — sees only these views. The underlying cubes stay private,
+# so joins and physical columns can be refactored without breaking any
+# saved query or Metabase card.
+views:
+  - name: fertigung
+    title: Fertigung & OEE
+    description: >
+      Produktionskennzahlen je Maschine, Produkt, Schicht und Werk:
+      Mengen, Zeiten und die OEE-Faktoren. Startpunkt für alle Fragen zu
+      Ausbringung, Ausschuss und Anlageneffektivität.
+    meta:
+      domain: Fertigung
+      grain: Ein Produktionslauf je Maschine, Produkt und Schicht.
+
+    cubes:
+      - join_path: production_runs
+        includes: "*"
+
+      - join_path: production_runs.machines
+        includes:
+          - machine_code
+          - machine_name
+          - production_line
+          - manufacturer
+          - commissioned_on
+
+      - join_path: production_runs.machines.sites
+        includes:
+          - site_name
+          - country
+
+      - join_path: production_runs.products
+        includes:
+          - sku
+          - product_name
+          - product_family
+
+      - join_path: production_runs.shifts
+        includes:
+          - shift_name
+          - shift_code

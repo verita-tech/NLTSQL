@@ -1,0 +1,47 @@
+cubes:
+  - name: products
+    description: >
+      Produktstammdaten inklusive der Sollzykluszeit, die als Basis für
+      den Leistungsgrad der OEE dient.
+    sql_table: ops.dim_product
+    public: false
+
+    dimensions:
+      - name: product_id
+        sql: product_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: sku
+        sql: sku
+        type: string
+        title: Artikelnummer
+        meta:
+          synonyms: [Artikelnummer, SKU, Teilenummer, Sachnummer]
+
+      - name: product_name
+        sql: product_name
+        type: string
+        title: Produkt
+        meta:
+          synonyms: [Produkt, Artikel, Teil, product]
+
+      - name: product_family
+        sql: product_family
+        type: string
+        title: Produktfamilie
+        description: Warengruppe, z. B. Gehäuse, Wellen, Flansche.
+        meta:
+          synonyms: [Produktfamilie, Warengruppe, Produktgruppe, product family]
+
+      - name: target_cycle_seconds
+        sql: target_cycle_seconds
+        type: number
+        title: Sollzykluszeit (s)
+        description: >
+          Ideale Zykluszeit pro Stück in Sekunden. Nur als Stammdatum
+          gedacht; für Kennzahlen wird sie in den Produktionsläufen
+          mengengewichtet verwendet.
+        meta:
+          synonyms: [Sollzykluszeit, Zykluszeit, Taktzeit, ideal cycle time]

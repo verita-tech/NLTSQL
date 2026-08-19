@@ -1,0 +1,67 @@
+cubes:
+  - name: machines
+    description: >
+      Maschinenstammdaten. Eine Maschine gehört zu genau einer
+      Produktionslinie an einem Werksstandort.
+    sql_table: ops.dim_machine
+    # Consumers query the views, not the raw cubes.
+    public: false
+
+    joins:
+      - name: sites
+        sql: "{CUBE}.site_id = {sites}.site_id"
+        relationship: many_to_one
+
+    dimensions:
+      - name: machine_id
+        sql: machine_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: machine_code
+        sql: machine_code
+        type: string
+        title: Maschinennummer
+        description: Eindeutige Kurznummer der Maschine, z. B. CNC-02.
+        meta:
+          synonyms: [Maschinennummer, Anlagennummer, Equipmentnummer, machine code]
+
+      - name: machine_name
+        sql: machine_name
+        type: string
+        title: Maschine
+        description: Klarname der Maschine, z. B. "CNC-Zentrum 2".
+        meta:
+          synonyms: [Maschine, Anlage, Equipment, machine]
+
+      - name: production_line
+        sql: production_line
+        type: string
+        title: Linie
+        description: Produktionslinie, auf der die Maschine steht.
+        meta:
+          synonyms: [Linie, Fertigungslinie, Produktionslinie, line]
+
+      - name: manufacturer
+        sql: manufacturer
+        type: string
+        title: Hersteller
+        meta:
+          synonyms: [Hersteller, Maschinenhersteller, manufacturer]
+
+      - name: commissioned_on
+        sql: commissioned_on
+        type: time
+        title: Inbetriebnahme
+        description: Datum der Inbetriebnahme; Basis für das Anlagenalter.
+        meta:
+          synonyms: [Inbetriebnahme, Inbetriebnahmedatum, commissioning date]
+
+    measures:
+      - name: machine_count
+        type: count_distinct
+        sql: machine_id
+        title: Anzahl Maschinen
+        meta:
+          synonyms: [Anzahl Maschinen, Maschinenanzahl, number of machines]

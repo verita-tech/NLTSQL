@@ -1,0 +1,222 @@
+cubes:
+  - name: production_runs
+    description: >
+      Produktionsläufe je Maschine, Produkt und Schicht. Dieser Cube ist
+      die einzige Stelle, an der die OEE-Kennzahlen definiert sind.
+
+      Alle Kennzahlen sind bewusst als Quotient zweier additiver Summen
+      modelliert (Summe/Summe, nicht Mittelwert von Quotienten). Nur so
+      bleiben sie über jede Aggregationsebene hinweg korrekt und können
+      aus einer Pre-Aggregation beantwortet werden.
+    # A SELECT rather than sql_table: the ideal cycle time has to travel
+    # with the fact row, otherwise the performance factor cannot be
+    # expressed as a ratio of sums.
+    sql: >
+      SELECT
+        r.run_id,
+        r.machine_id,
+        r.product_id,
+        r.shift_id,
+        r.started_at,
+        r.ended_at,
+        r.planned_runtime_minutes,
+        r.actual_runtime_minutes,
+        r.planned_qty,
+        r.good_qty,
+        r.scrap_qty,
+        p.target_cycle_seconds
+      FROM ops.fact_production_run r
+      JOIN ops.dim_product p ON p.product_id = r.product_id
+    public: false
+
+    joins:
+      - name: machines
+        sql: "{CUBE}.machine_id = {machines}.machine_id"
+        relationship: many_to_one
+      - name: products
+        sql: "{CUBE}.product_id = {products}.product_id"
+        relationship: many_to_one
+      - name: shifts
+        sql: "{CUBE}.shift_id = {shifts}.shift_id"
+        relationship: many_to_one
+
+    dimensions:
+      - name: run_id
+        sql: run_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: started_at
+        sql: started_at
+        type: time
+        title: Schichtbeginn
+        description: Startzeitpunkt des Produktionslaufs; die Standard-Zeitachse.
+        meta:
+          synonyms: [Datum, Zeitpunkt, Schichtbeginn, Produktionsdatum, date]
+
+      - name: ended_at
+        sql: ended_at
+        type: time
+        title: Schichtende
+        meta:
+          synonyms: [Schichtende, Ende, end]
+
+    measures:
+      - name: run_count
+        type: count
+        title: Anzahl Produktionsläufe
+        meta:
+          synonyms: [Anzahl Läufe, Anzahl Schichten, Produktionsläufe, runs]
+
+      # ---------------------------------------------------------- volumes
+      - name: good_qty
+        sql: good_qty
+        type: sum
+        title: Gutmenge
+        description: Stückzahl, die die Qualitätsprüfung bestanden hat.
+        meta:
+          synonyms: [Gutmenge, Gutteile, iO-Menge, good quantity]
+
+      - name: scrap_qty
+        sql: scrap_qty
+        type: sum
+        title: Ausschussmenge
+        description: Stückzahl, die als Ausschuss verworfen wurde.
+        meta:
+          synonyms: [Ausschuss, Ausschussmenge, Schlechtteile, nio, scrap]
+
+      - name: total_qty
+        sql: "{CUBE}.good_qty + {CUBE}.scrap_qty"
+        type: sum
+        title: Produzierte Menge
+        description: Gesamtmenge inklusive Ausschuss.
+        meta:
+          synonyms: [Produzierte Menge, Gesamtmenge, Stückzahl, output]
+
+      - name: planned_qty
+        sql: planned_qty
+        type: sum
+        title: Planmenge
+        meta:
+          synonyms: [Planmenge, Sollmenge, geplante Menge, planned quantity]
+
+      # ------------------------------------------------------------ times
+      - name: planned_runtime_minutes
+        sql: planned_runtime_minutes
+        type: sum
+        title: Planbelegungszeit (min)
+        description: Geplante Produktionszeit — der Nenner der Verfügbarkeit.
+        meta:
+          synonyms: [Planbelegungszeit, geplante Laufzeit, Sollzeit, planned runtime]
+
+      - name: actual_runtime_minutes
+        sql: actual_runtime_minutes
+        type: sum
+        title: Laufzeit (min)
+        description: Tatsächliche Produktionszeit ohne Stillstände.
+        meta:
+          synonyms: [Laufzeit, Istlaufzeit, Produktionszeit, actual runtime]
+
+      - name: ideal_runtime_minutes
+        sql: "({CUBE}.good_qty + {CUBE}.scrap_qty) * {CUBE}.target_cycle_seconds / 60.0"
+        type: sum
+        title: Idealzeit (min)
+        description: >
+          Zeit, die für die produzierte Menge bei Sollzykluszeit nötig
+          gewesen wäre — der Zähler des Leistungsgrads.
+        meta:
+          synonyms: [Idealzeit, Sollzeit je Menge, ideal runtime]
+
+      - name: downtime_minutes
+        sql: "{CUBE}.planned_runtime_minutes - {CUBE}.actual_runtime_minutes"
+        type: sum
+        title: Stillstandszeit (min)
+        description: Differenz aus Planbelegungszeit und tatsächlicher Laufzeit.
+        meta:
+          synonyms: [Stillstandszeit, Stillstand, Ausfallzeit, downtime]
+
+      # -------------------------------------------------------------- OEE
+      - name: quality_rate
+        sql: "{good_qty} / NULLIF({total_qty}, 0)"
+        type: number
+        format: percent
+        title: Qualitätsrate
+        description: Gutmenge geteilt durch produzierte Menge (OEE-Faktor Qualität).
+        meta:
+          synonyms: [Qualitätsrate, Qualitätsgrad, Gutanteil, quality rate]
+
+      - name: scrap_rate
+        sql: "{scrap_qty} / NULLIF({total_qty}, 0)"
+        type: number
+        format: percent
+        title: Ausschussquote
+        description: Ausschussmenge geteilt durch produzierte Menge.
+        meta:
+          synonyms: [Ausschussquote, Ausschussrate, Schlechtanteil, scrap rate]
+
+      - name: availability
+        sql: "{actual_runtime_minutes} / NULLIF({planned_runtime_minutes}, 0)"
+        type: number
+        format: percent
+        title: Verfügbarkeit
+        description: Laufzeit geteilt durch Planbelegungszeit (OEE-Faktor Verfügbarkeit).
+        meta:
+          synonyms: [Verfügbarkeit, Verfügbarkeitsgrad, availability]
+
+      - name: performance
+        sql: "{ideal_runtime_minutes} / NULLIF({actual_runtime_minutes}, 0)"
+        type: number
+        format: percent
+        title: Leistungsgrad
+        description: Idealzeit geteilt durch Laufzeit (OEE-Faktor Leistung).
+        meta:
+          synonyms: [Leistungsgrad, Leistung, Effizienz, performance]
+
+      - name: oee
+        sql: "{availability} * {performance} * {quality_rate}"
+        type: number
+        format: percent
+        title: OEE
+        description: >
+          Gesamtanlageneffektivität = Verfügbarkeit x Leistungsgrad x
+          Qualitätsrate. Die verbindliche Definition dieser Kennzahl für
+          alle Auswertungen.
+        meta:
+          synonyms: [OEE, Gesamtanlageneffektivität, Anlageneffektivität, overall equipment effectiveness]
+
+      - name: plan_attainment
+        sql: "{total_qty} / NULLIF({planned_qty}, 0)"
+        type: number
+        format: percent
+        title: Planerfüllung
+        description: Produzierte Menge geteilt durch Planmenge.
+        meta:
+          synonyms: [Planerfüllung, Zielerreichung, Plantreue, plan attainment]
+
+    pre_aggregations:
+      # Serves every ratio above, because they are all built from the
+      # additive measures rolled up here.
+      - name: daily_rollup
+        measures:
+          - run_count
+          - good_qty
+          - scrap_qty
+          - total_qty
+          - planned_qty
+          - planned_runtime_minutes
+          - actual_runtime_minutes
+          - ideal_runtime_minutes
+        dimensions:
+          - machines.machine_name
+          - machines.machine_code
+          - machines.production_line
+          - products.product_name
+          - products.product_family
+          - shifts.shift_name
+          - sites.site_name
+        time_dimension: started_at
+        granularity: day
+        partition_granularity: month
+        refresh_key:
+          every: 1 hour

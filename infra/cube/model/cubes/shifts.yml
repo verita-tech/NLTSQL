@@ -1,0 +1,26 @@
+cubes:
+  - name: shifts
+    description: Schichtmodell (Früh-, Spät-, Nachtschicht).
+    sql_table: ops.dim_shift
+    public: false
+
+    dimensions:
+      - name: shift_id
+        sql: shift_id
+        type: number
+        primary_key: true
+        public: false
+
+      - name: shift_code
+        sql: shift_code
+        type: string
+        title: Schichtkürzel
+        meta:
+          synonyms: [Schichtkürzel, shift code]
+
+      - name: shift_name
+        sql: shift_name
+        type: string
+        title: Schicht
+        meta:
+          synonyms: [Schicht, Schichtmodell, Frühschicht, Spätschicht, Nachtschicht, shift]
