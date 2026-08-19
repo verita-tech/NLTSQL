@@ -182,9 +182,13 @@ services:
       Metabase__ApiKey: ${METABASE_API_KEY}
       Metabase__EmbeddingSecretKey: ${METABASE_EMBEDDING_SECRET_KEY}
       Metabase__CubeDatabaseId: ${METABASE_CUBE_DATABASE_ID}
+      Metabase__Tls__DangerousAcceptAnyServerCertificate: ${METABASE_TLS_INSECURE:-false}
       Planner__Enabled: ${PLANNER_ENABLED:-false}
       Planner__BaseUrl: http://ollama:11434
       Planner__Model: ${PLANNER_MODEL:-qwen2.5:7b-instruct}
+      Planner__ApiKey: ${PLANNER_API_KEY:-}
+      Planner__UserToken: ${PLANNER_USER_TOKEN:-}
+      Planner__Tls__DangerousAcceptAnyServerCertificate: ${PLANNER_TLS_INSECURE:-false}
       ConnectionStrings__AppDb: Data Source=/data/nltsql.db
     volumes:
       - app-data:/data

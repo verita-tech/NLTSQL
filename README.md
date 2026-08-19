@@ -96,6 +96,54 @@ Deshalb liegt die Fachlichkeit in `infra/cube/model/` und nirgends sonst:
 | Metabase-Vorschau | Static Embedding mit serverseitig signiertem Token. Der Browser hält keine Metabase-Session. |
 | CSV-Download | Kurzlebiges, mandantengebundenes Ticket statt Abfrage in der URL. |
 
+### Zertifikate bei internen Diensten
+
+Laufen Cube, Metabase oder Ollama über HTTPS mit einem selbstsignierten
+Zertifikat oder dem einer internen CA, lehnt .NET die Verbindung ab. Dafür
+gibt es zwei Wege — sie sind nicht gleichwertig:
+
+**Empfohlen: Zertifikat hinterlegen.** Die Verbindung bleibt geprüft, es
+wird lediglich genau dieses eine Zertifikat zusätzlich akzeptiert.
+
+```jsonc
+"Planner": {
+  "Tls": {
+    "TrustedCertificateThumbprints": [ "A1:B2:C3:…" ]
+  }
+}
+```
+
+Fingerabdruck auslesen:
+
+```bash
+openssl s_client -connect ollama.intern:443 </dev/null 2>/dev/null   | openssl x509 -fingerprint -sha256 -noout
+```
+
+Doppelpunkte und Groß-/Kleinschreibung spielen keine Rolle. Wird das
+Zertifikat erneuert, muss der Wert nachgezogen werden — das ist der Preis
+dieser Variante.
+
+**Notlösung: Prüfung abschalten.**
+
+```jsonc
+"Planner":  { "Tls": { "DangerousAcceptAnyServerCertificate": true } },
+"Metabase": { "Tls": { "DangerousAcceptAnyServerCertificate": true } }
+```
+
+Über Compose: `PLANNER_TLS_INSECURE=true` bzw. `METABASE_TLS_INSECURE=true`.
+
+Der Name ist bewusst unbequem. Der Datenverkehr bleibt verschlüsselt,
+aber es wird nicht mehr geprüft, **mit wem** verschlüsselt wird — wer sich
+im Netz dazwischenschalten kann, liest mit und kann Antworten verändern.
+Beim Planner ginge dabei der komplette Fachkatalog samt Benutzerfragen
+mit, bei Metabase der API-Schlüssel. Die Anwendung schreibt beim Start
+für jeden betroffenen Client eine Warnung ins Log, damit die Einstellung
+den Test nicht überlebt, für den sie gedacht war.
+
+Ein Sonderfall: die **Diagrammvorschau** lädt der Browser direkt von
+`Metabase:PublicUrl`. Ein Zertifikat, dem der Browser nicht traut, bleibt
+dort ein Problem — unabhängig von dieser Einstellung.
+
 Der Prototyp hat **keine Benutzeranmeldung**: `ITenantContext` kommt aus
 der Konfiguration. Das ist die eine Stelle, die für einen echten Betrieb
 zu ersetzen ist — alles dahinter benutzt bereits diese Abstraktion.
@@ -202,6 +250,28 @@ PLANNER_MODEL=qwen2.5:7b-instruct
 
 Läuft die App außerhalb von Compose, entsprechend `Planner:Enabled=true`
 in `appsettings.Development.json` oder per User-Secrets.
+
+**Ollama hinter einem Gateway.** Steht der Modellserver nicht auf der
+Loopback-Schnittstelle, sondern hinter einer Absicherung, sendet die
+Anwendung feste Header mit:
+
+```jsonc
+"Planner": {
+  "BaseUrl": "https://ollama.intern",
+  "ApiKey": "…",            // Header: X-Api-Key
+  "UserToken": "…",         // Header: X-User-Token
+  "ApiKeyHeader": "X-Api-Key",
+  "UserTokenHeader": "X-User-Token",
+  "DefaultHeaders": { "X-Request-Source": "nltsql" }
+}
+```
+
+Die Headernamen sind konfigurierbar, weil Gateways sich hier nicht einig
+sind. Für ein Bearer-Schema genügt `"ApiKeyHeader": "Authorization"` mit
+`"ApiKey": "Bearer …"`. Ein leer gelassener Wert bedeutet: der Header
+entfällt ganz — ein vorhandener, aber leerer Header wird von manchen
+Gateways als fehlgeschlagener Anmeldeversuch gewertet. Über Compose:
+`PLANNER_API_KEY` und `PLANNER_USER_TOKEN`.
 
 **Modellwahl.** Nötig ist ein instruktionsgetuntes Modell, das sich an
 ein JSON-Schema hält. Die 7B-Klasse ist die kleinste, die zuverlässig das

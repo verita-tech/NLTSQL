@@ -183,3 +183,42 @@ gesetzt.
 Modell, dessen normale Antwortzeit im Minutenbereich liegt, ist das
 unvermeidbar — es gibt keinen Schwellenwert, der „langsam" von „hängt"
 trennt.
+
+---
+
+## 11. Zertifikatsprüfung: abschaltbar, aber nicht bequem
+
+Für jeden ausgehenden Client gibt es zwei Einstellungen: hinterlegte
+Zertifikat-Fingerabdrücke und ein Schalter, der die Prüfung ganz
+abschaltet.
+
+**Warum überhaupt:** Interne Dienste laufen regelmäßig mit
+selbstsignierten Zertifikaten. Ohne einen Weg daran vorbei ist die
+Anwendung in genau den Netzen nicht einsetzbar, für die sie gedacht ist.
+
+**Warum trotzdem zwei Wege:** Das Abschalten der Prüfung stellt genau den
+Angriff wieder her, gegen den TLS schützt. Beim Planner wandert der
+vollständige Fachkatalog durch diese Verbindung, bei Metabase ein
+API-Schlüssel. Fingerabdruck-Pinning löst dasselbe Problem, ohne die
+Authentizität aufzugeben, und kostet eine Zeile Konfiguration mehr.
+Deshalb ist es dokumentiert als der normale Weg, und der Schalter heißt
+`DangerousAcceptAnyServerCertificate` statt `IgnoreSslErrors`: er soll
+sich beim Lesen des Diffs bemerkbar machen.
+
+Drei Details, die den Unterschied zwischen „funktioniert" und „ist noch
+sicher" ausmachen:
+
+* Ohne Konfiguration wird **kein** Callback gesetzt. Ein eigener Callback
+  kann nur permissiver sein als die Kettenprüfung der Plattform, deshalb
+  darf der Normalfall gar nicht erst durch diesen Code laufen.
+* Ein hinterlegter Fingerabdruck entschuldigt **keinen** Namensfehler.
+  Das Zertifikat mag echt sein, aber für einen anderen Host ausgestellt
+  — genau die Verwechslung, auf die ein Angreifer baut.
+* Das Abschalten wird beim Start pro Client als Warnung geloggt, nicht
+  pro Anfrage. Es ist eine Eigenschaft der Installation, keine der
+  einzelnen Verbindung, und eine Warnung je Anfrage würde ohnehin
+  untergehen.
+
+**Preis:** Ein gepinntes Zertifikat muss bei Erneuerung nachgezogen
+werden, sonst steht die Anbindung. Das ist der bewusste Tausch gegen die
+Alternative, bei der nie wieder jemand hinschaut.

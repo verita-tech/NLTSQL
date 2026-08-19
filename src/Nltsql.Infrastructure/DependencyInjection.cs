@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Http.Resilience;
 using Nltsql.Core.Abstractions;
 using Nltsql.Infrastructure.Configuration;
@@ -25,6 +26,10 @@ public static class DependencyInjection
 
         services.TryAddSingletonTimeProvider();
         services.AddMemoryCache();
+
+        // Makes a disabled certificate check visible in the log at start,
+        // before anyone wonders why it worked.
+        services.AddHostedService<TlsPolicyReporter>();
 
         AddCube(services, configuration);
         AddMetabase(services, configuration);
@@ -67,6 +72,8 @@ public static class DependencyInjection
                 // and the per-query deadline is enforced separately.
                 client.Timeout = TimeSpan.FromMinutes(5);
             })
+            .ConfigurePrimaryHttpMessageHandler(sp =>
+                CreateHandler(sp.GetRequiredService<IOptions<CubeOptions>>().Value.Tls))
             .AddStandardResilienceHandler(resilience =>
             {
                 // The defaults (10s per attempt, 30s total) are tuned for
@@ -89,6 +96,8 @@ public static class DependencyInjection
                 client.BaseAddress = new Uri(baseUrl);
                 client.Timeout = TimeSpan.FromSeconds(30);
             })
+            .ConfigurePrimaryHttpMessageHandler(sp =>
+                CreateHandler(sp.GetRequiredService<IOptions<MetabaseOptions>>().Value.Tls))
             .AddStandardResilienceHandler();
     }
 
@@ -106,13 +115,21 @@ public static class DependencyInjection
         var baseUrl = section["BaseUrl"] ?? "http://localhost:11434";
         var timeout = section.GetValue<TimeSpan?>("Timeout") ?? TimeSpan.FromSeconds(180);
 
-        services.AddHttpClient<OllamaChatClient>(client =>
+        services.AddHttpClient<OllamaChatClient>((sp, client) =>
             {
                 client.BaseAddress = new Uri(baseUrl);
 
                 // Outermost bound; the planner enforces its own budget.
                 client.Timeout = timeout + TimeSpan.FromSeconds(30);
+
+                // Sent on every request, so an Ollama behind a gateway
+                // never needs the call sites to know about credentials.
+                PlannerHeaders.Apply(
+                    client.DefaultRequestHeaders,
+                    sp.GetRequiredService<IOptions<PlannerOptions>>().Value);
             })
+            .ConfigurePrimaryHttpMessageHandler(sp =>
+                CreateHandler(sp.GetRequiredService<IOptions<PlannerOptions>>().Value.Tls))
             .AddStandardResilienceHandler(resilience =>
             {
                 // A local model on CPU can take a minute for the first
@@ -123,6 +140,29 @@ public static class DependencyInjection
             });
 
         services.AddScoped<IQueryPlanner, OllamaQueryPlanner>();
+    }
+
+    /// <summary>
+    /// Builds the primary handler, applying the certificate policy.
+    /// </summary>
+    /// <remarks>
+    /// The callback is only attached when the policy is actually
+    /// customised; otherwise the handler keeps the platform's own chain
+    /// validation, which is stricter than anything reconstructed here.
+    /// </remarks>
+    private static HttpClientHandler CreateHandler(TlsOptions tls)
+    {
+        var handler = new HttpClientHandler();
+
+        var callback = CertificateValidation.CreateCallback(tls);
+
+        if (callback is not null)
+        {
+            handler.ServerCertificateCustomValidationCallback = (request, certificate, chain, errors) =>
+                callback(request, certificate, chain, errors);
+        }
+
+        return handler;
     }
 
     /// <summary>

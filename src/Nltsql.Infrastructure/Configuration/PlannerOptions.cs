@@ -19,6 +19,43 @@ public sealed class PlannerOptions
     public string BaseUrl { get; set; } = "http://localhost:11434";
 
     /// <summary>
+    /// API key sent with every request, for an Ollama that sits behind a
+    /// gateway rather than on the loopback interface.
+    /// </summary>
+    /// <remarks>
+    /// Empty means the header is omitted entirely — an empty credential
+    /// header is worse than none, because a gateway may accept it as a
+    /// present-but-blank value.
+    /// </remarks>
+    public string? ApiKey { get; set; }
+
+    /// <summary>Header carrying <see cref="ApiKey"/>.</summary>
+    /// <remarks>
+    /// Configurable because gateways disagree. For a bearer scheme, set
+    /// this to <c>Authorization</c> and put <c>Bearer …</c> in the value.
+    /// </remarks>
+    public string ApiKeyHeader { get; set; } = "X-Api-Key";
+
+    /// <summary>Token identifying the calling user or service.</summary>
+    public string? UserToken { get; set; }
+
+    /// <summary>Header carrying <see cref="UserToken"/>.</summary>
+    public string UserTokenHeader { get; set; } = "X-User-Token";
+
+    /// <summary>
+    /// Further fixed headers sent with every request, for anything the
+    /// two named ones do not cover.
+    /// </summary>
+    public IDictionary<string, string> DefaultHeaders { get; set; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Certificate handling for the connection to Ollama. Relevant only
+    /// when <see cref="BaseUrl"/> is HTTPS.
+    /// </summary>
+    public TlsOptions Tls { get; set; } = new();
+
+    /// <summary>
     /// Model tag, exactly as <c>ollama list</c> reports it.
     /// </summary>
     /// <remarks>

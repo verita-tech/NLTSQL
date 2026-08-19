@@ -29,6 +29,17 @@ public sealed class MetabaseOptions
     /// <summary>Metabase collection new questions are filed under.</summary>
     public int? CollectionId { get; set; }
 
+    /// <summary>
+    /// Certificate handling for the server-to-server calls to Metabase.
+    /// </summary>
+    /// <remarks>
+    /// Applies to this app's API calls only. The chart preview is loaded
+    /// by the browser straight from <see cref="PublicUrl"/>, so a
+    /// certificate the browser distrusts still shows as a blocked or
+    /// warned-about iframe no matter what is configured here.
+    /// </remarks>
+    public TlsOptions Tls { get; set; } = new();
+
     /// <summary>Lifetime of a signed embed token.</summary>
     public TimeSpan EmbedTokenLifetime { get; set; } = TimeSpan.FromMinutes(30);
 

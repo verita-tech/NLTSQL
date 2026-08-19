@@ -24,6 +24,9 @@ public sealed class CubeOptions
     /// <summary>Overall budget for one query, including Cube's long-poll waits.</summary>
     public TimeSpan QueryTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>Certificate handling for the connection to Cube.</summary>
+    public TlsOptions Tls { get; set; } = new();
+
     /// <summary>How long the semantic model is cached before Cube is asked again.</summary>
     public TimeSpan ModelCacheDuration { get; set; } = TimeSpan.FromMinutes(5);
 }
