@@ -105,6 +105,10 @@ def authenticate():
 
     if setup_token:
         print("Running first-run setup ...")
+        # Payload shape per the endpoint's own schema: `user` takes email,
+        # password and the two name parts; `prefs` requires site_name and
+        # optionally site_locale. Anything else is accepted and ignored, so
+        # only what the API actually reads is sent.
         result = request("POST", "/api/setup", {
             "token": setup_token,
             "user": {
@@ -112,9 +116,8 @@ def authenticate():
                 "last_name": ADMIN_LAST,
                 "email": ADMIN_EMAIL,
                 "password": ADMIN_PASSWORD,
-                "site_name": "NLTSQL",
             },
-            "prefs": {"site_name": "NLTSQL", "allow_tracking": False},
+            "prefs": {"site_name": "NLTSQL"},
         })
         session = (result or {}).get("id")
         if not session:

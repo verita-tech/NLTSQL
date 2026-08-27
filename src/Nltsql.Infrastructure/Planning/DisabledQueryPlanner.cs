@@ -4,7 +4,7 @@ using Nltsql.Core.Semantics;
 namespace Nltsql.Infrastructure.Planning;
 
 /// <summary>
-/// Stand-in used when no API key is configured.
+/// Stand-in used when the planner is switched off.
 /// </summary>
 /// <remarks>
 /// The natural-language box is an accelerator, not the product: without
@@ -22,5 +22,6 @@ public sealed class DisabledQueryPlanner : IQueryPlanner
         CancellationToken cancellationToken = default) =>
         Task.FromResult(QueryPlan.Failed(
             "Die Eingabe in natürlicher Sprache ist nicht aktiviert. " +
-            "Hinterlegen Sie Planner:ApiKey oder nutzen Sie den Abfrage-Editor."));
+            "Setzen Sie Planner:Enabled auf true und hinterlegen Sie ein erreichbares Ollama, " +
+            "oder nutzen Sie den Abfrage-Editor — er kann alles, was die Frageeingabe erzeugen könnte."));
 }

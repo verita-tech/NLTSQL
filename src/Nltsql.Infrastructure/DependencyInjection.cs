@@ -1,4 +1,3 @@
-using Anthropic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -83,17 +82,41 @@ public static class DependencyInjection
 
     private static void AddPlanner(IServiceCollection services, IConfiguration configuration)
     {
-        var apiKey = configuration[$"{PlannerOptions.SectionName}:ApiKey"];
+        var section = configuration.GetSection(PlannerOptions.SectionName);
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (!section.GetValue("Enabled", defaultValue: true))
         {
-            // No key: the structured builder carries the app on its own.
+            // Switched off: the structured builder carries the app on its own.
             services.AddSingleton<IQueryPlanner, DisabledQueryPlanner>();
             return;
         }
 
-        services.AddSingleton(_ => new AnthropicClient { ApiKey = apiKey });
-        services.AddScoped<IQueryPlanner, ClaudeQueryPlanner>();
+        var baseUrl = section["BaseUrl"] ?? "http://localhost:11434";
+
+        services.AddHttpClient<IQueryPlanner, OllamaQueryPlanner>(client =>
+            {
+                client.BaseAddress = new Uri(baseUrl);
+
+                // The per-request budget lives in the planner's own linked
+                // token, so the client must not impose a shorter one.
+                client.Timeout = Timeout.InfiniteTimeSpan;
+            })
+            .AddStandardResilienceHandler(options =>
+            {
+                // The defaults (10 s per attempt, 30 s total) are sized for
+                // a web API and would abort every local inference. The three
+                // values are validated against each other, so all of them
+                // have to move together: total > attempt, and the circuit
+                // breaker's sampling window >= 2 x attempt.
+                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(4);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(5);
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(8);
+
+                // A retry here costs a whole model response, and the
+                // planner already has a second, better-informed attempt in
+                // its repair round.
+                options.Retry.MaxRetryAttempts = 1;
+            });
     }
 
     private static void AddPersistence(IServiceCollection services, IConfiguration configuration)

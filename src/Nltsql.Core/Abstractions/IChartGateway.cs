@@ -27,6 +27,16 @@ public interface IChartGateway
         int dashboardId,
         int cardId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Signed embed URL for a card that already exists, or
+    /// <see langword="null"/> when Metabase is not configured.
+    /// </summary>
+    /// <remarks>
+    /// Synchronous because signing a token is local work: a saved
+    /// dashboard tile can render its chart without any call to Metabase.
+    /// </remarks>
+    string? CreateEmbedUrl(int cardId);
 }
 
 public sealed record ChartPublishRequest

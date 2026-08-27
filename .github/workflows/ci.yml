@@ -41,6 +41,14 @@ jobs:
           CUBEJS_SQL_PASSWORD: ci
           METABASE_EMBEDDING_SECRET_KEY: ci-embedding-secret
 
+      # checkSqlAuth and queryRewrite decide what a caller may see, and
+      # both are plain functions — so the part that matters is testable
+      # without starting Cube.
+      - name: Check Cube access-control logic
+        run: |
+          node --check infra/cube/cube.js
+          node infra/cube/cube.test.js
+
       - name: Validate semantic model YAML
         run: |
           python3 - <<'PY'

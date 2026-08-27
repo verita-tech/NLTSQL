@@ -6,13 +6,18 @@
 #   metabase-db  Metabase application database
 #   metabase     Metabase 0.63, connected to Cube's SQL API
 #   app          the Blazor front end (profile "app")
+#   ollama       local model for the question box (profile "ollama")
 #
 # Only Metabase and the app publish ports by default; the warehouse and
 # Cube stay on the internal network. Cube is deliberately not reachable
 # from a browser — every Cube call is made server-side with a signed JWT.
 #
-#   docker compose up -d                  infra only, run the app from the IDE
-#   docker compose --profile app up -d    everything, including the app
+#   docker compose up -d                     infra only, run the app from the IDE
+#   docker compose --profile app up -d       everything, including the app
+#   docker compose --profile ollama up -d    add a local model container
+#
+# Skip the ollama profile when Ollama already runs on the host; point
+# OLLAMA_BASE_URL at http://host.docker.internal:11434 instead.
 # =====================================================================
 
 name: nltsql
@@ -36,7 +41,7 @@ services:
     restart: unless-stopped
 
   cube:
-    image: cubejs/cube:v1.7.23
+    image: cubejs/cube:v1.7.28
     environment:
       CUBEJS_DB_TYPE: postgres
       CUBEJS_DB_HOST: warehouse
@@ -55,6 +60,12 @@ services:
       CUBEJS_PG_SQL_PORT: 15432
       CUBEJS_SQL_USER: ${CUBEJS_SQL_USER:-metabase}
       CUBEJS_SQL_PASSWORD: ${CUBEJS_SQL_PASSWORD:?CUBEJS_SQL_PASSWORD is required}
+
+      # Security context for SQL API sessions, applied by checkSqlAuth in
+      # cube.js. Without it queryRewrite rejects everything Metabase sends.
+      # One static SQL user means one tenant on this path.
+      CUBEJS_SQL_TENANT_ID: ${CUBEJS_SQL_TENANT_ID:-demo}
+      CUBEJS_SQL_ALLOWED_SITES: ${CUBEJS_SQL_ALLOWED_SITES:-}
     volumes:
       - ./infra/cube/model:/cube/conf/model:ro
       - ./infra/cube/cube.js:/cube/conf/cube.js:ro
@@ -90,7 +101,7 @@ services:
     restart: unless-stopped
 
   metabase:
-    image: metabase/metabase:v0.63.13
+    image: metabase/metabase:v0.63.15
     environment:
       MB_DB_TYPE: postgres
       MB_DB_HOST: metabase-db
@@ -135,7 +146,13 @@ services:
       Metabase__ApiKey: ${METABASE_API_KEY}
       Metabase__EmbeddingSecretKey: ${METABASE_EMBEDDING_SECRET_KEY}
       Metabase__CubeDatabaseId: ${METABASE_CUBE_DATABASE_ID}
-      Planner__ApiKey: ${ANTHROPIC_API_KEY}
+
+      # Ollama runs either as the service below (profile "ollama") or on
+      # the host, in which case set OLLAMA_BASE_URL to
+      # http://host.docker.internal:11434 in .env.
+      Planner__Enabled: ${PLANNER_ENABLED:-true}
+      Planner__BaseUrl: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      Planner__Model: ${OLLAMA_MODEL:-qwen2.5:14b-instruct}
       ConnectionStrings__AppDb: Data Source=/data/nltsql.db
     volumes:
       - app-data:/data
@@ -146,8 +163,26 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    volumes:
+      # Models are large; keeping them in a named volume means `down` and
+      # `up` do not re-download several gigabytes.
+      - ollama-models:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   warehouse-data:
   metabase-db-data:
   cube-cache:
   app-data:
+  ollama-models:

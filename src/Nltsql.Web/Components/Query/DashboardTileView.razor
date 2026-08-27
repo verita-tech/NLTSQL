@@ -1,13 +1,18 @@
 @using Nltsql.Infrastructure.Persistence
 @inject ISemanticLayer SemanticLayer
+@inject IChartGateway ChartGateway
 
 @*
     One dashboard tile.
 
-    Each tile re-runs its saved query when the dashboard is opened. That
-    is the whole point of storing the query rather than the numbers: a
-    dashboard someone opens in six months shows today's data under
-    today's metric definitions.
+    Each tile shows current data when the dashboard is opened, never a
+    stored result. That is the whole point of saving the query rather than
+    the numbers: a dashboard someone opens in six months shows today's
+    data under today's metric definitions.
+
+    A tile that has a Metabase question behind it renders that question,
+    so the dashboard and the workspace show the same picture. Without one
+    it falls back to the table, which needs no Metabase at all.
 *@
 
 <FluentCard Style="@($"flex:1 1 {Width}px;min-width:{Width}px")">
@@ -39,7 +44,15 @@
         <p class="muted" style="margin:.25rem 0 .75rem">@Tile.SavedQuery.Description</p>
     }
 
-    @if (_loading)
+    @if (_embedUrl is not null)
+    {
+        <iframe class="tile-frame"
+                title="@Tile.SavedQuery?.Title"
+                src="@_embedUrl"
+                frameborder="0"
+                allowtransparency="true"></iframe>
+    }
+    else if (_loading)
     {
         <FluentProgressRing />
     }
@@ -64,11 +77,26 @@
     public EventCallback<Guid> OnRemove { get; set; }
 
     private QueryResultSet? _result;
+    private string? _embedUrl;
     private string? _error;
     private bool _loading = true;
 
     protected override async Task OnInitializedAsync()
     {
+        // A card id means Metabase can draw this tile, and drawing it
+        // there costs no query from here at all — the token is signed
+        // locally and the browser fetches the rest.
+        if (Tile.SavedQuery?.MetabaseCardId is { } cardId)
+        {
+            _embedUrl = ChartGateway.CreateEmbedUrl(cardId);
+
+            if (_embedUrl is not null)
+            {
+                _loading = false;
+                return;
+            }
+        }
+
         var query = Tile.SavedQuery?.ToQuery();
 
         if (query is null)

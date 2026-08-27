@@ -52,7 +52,16 @@ public sealed class MetabaseChartGateway(
         var payload = new JsonObject
         {
             ["name"] = request.Title,
-            ["description"] = request.Description,
+
+            // Metabase 0.63 replaced the old boolean `dataset` flag with a
+            // card type; "question" is the ordinary saved question.
+            ["type"] = "question",
+
+            // The create schema types this as a *non-blank* string when
+            // present, so an empty description is a 400, not a no-op.
+            ["description"] = string.IsNullOrWhiteSpace(request.Description)
+                ? null
+                : request.Description,
             ["display"] = request.ChartType.ToMetabaseDisplay(),
             ["visualization_settings"] = new JsonObject(),
             ["dataset_query"] = new JsonObject
@@ -88,6 +97,9 @@ public sealed class MetabaseChartGateway(
         };
     }
 
+    public string? CreateEmbedUrl(int cardId) =>
+        IsAvailable ? tokenFactory.CreateQuestionEmbedUrl(cardId) : null;
+
     private async Task<int> CreateCardAsync(JsonObject payload, CancellationToken cancellationToken)
     {
         using var response = await SendAsync(HttpMethod.Post, "/api/card", payload, cancellationToken)
@@ -112,9 +124,25 @@ public sealed class MetabaseChartGateway(
         return cardId;
     }
 
+    /// <summary>Opts this one question into static embedding.</summary>
+    /// <remarks>
+    /// Metabase requires a superuser for this — the API key must belong to
+    /// the Administrators group — and rejects it outright unless static
+    /// embedding is enabled instance-wide. <c>infra/metabase/bootstrap.py</c>
+    /// arranges both.
+    ///
+    /// <c>embedding_params</c> is sent explicitly and empty: no parameter of
+    /// this card is exposed to the viewer. The tenant filter does not belong
+    /// here anyway — Cube applies it on the connection Metabase reads
+    /// through, where a viewer cannot reach it.
+    /// </remarks>
     private async Task EnableEmbeddingAsync(int cardId, CancellationToken cancellationToken)
     {
-        var payload = new JsonObject { ["enable_embedding"] = true };
+        var payload = new JsonObject
+        {
+            ["enable_embedding"] = true,
+            ["embedding_params"] = new JsonObject(),
+        };
 
         using var response = await SendAsync(HttpMethod.Put, $"/api/card/{cardId}", payload, cancellationToken)
             .ConfigureAwait(false);
@@ -129,8 +157,16 @@ public sealed class MetabaseChartGateway(
 
         // The search endpoint is the stable way to enumerate dashboards;
         // the older collection-listing routes have moved between versions.
+        //
+        // `offset` is not optional here even though it looks like it:
+        // Metabase validates the two paging parameters as a pair and
+        // answers "When including a limit, an offset must also be
+        // included." with a 400 if only one of them arrives.
         using var response = await SendAsync(
-            HttpMethod.Get, "/api/search?models=dashboard&limit=100", content: null, cancellationToken)
+            HttpMethod.Get,
+            "/api/search?models=dashboard&limit=100&offset=0",
+            content: null,
+            cancellationToken)
             .ConfigureAwait(false);
 
         var body = await ReadJsonAsync(response, cancellationToken).ConfigureAwait(false);

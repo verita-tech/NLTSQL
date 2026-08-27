@@ -144,21 +144,29 @@ else
         </FluentCard>
 
         @* ------------------------------------------------- the answer *@
+        @* Metabase first: the chart is what answers the question, and it
+           is also the hand-off point into further self-service analysis.
+           The table stays below it as the exact reading of the same
+           numbers — and as the display that still works when Metabase is
+           not configured. *@
         @if (_result is not null)
         {
             <FluentCard>
-                <FluentLabel Typo="Typography.Subject" Style="margin-bottom:.75rem">Ergebnis</FluentLabel>
-                <ResultTable Result="_result" />
-            </FluentCard>
-
-            <FluentCard>
-                <FluentLabel Typo="Typography.Subject" Style="margin-bottom:.75rem">Diagramm</FluentLabel>
+                <FluentLabel Typo="Typography.Subject" Style="margin-bottom:.75rem">
+                    Diagramm (Metabase)
+                </FluentLabel>
                 <ChartPanel @ref="_chartPanel"
                             Query="_query"
                             Title="@ChartTitle"
                             ChartType="_chartType"
+                            CardId="_metabaseCardId"
                             ChartTypeChanged="@(t => _chartType = t)"
                             CardPublished="@(id => _metabaseCardId = id)" />
+            </FluentCard>
+
+            <FluentCard>
+                <FluentLabel Typo="Typography.Subject" Style="margin-bottom:.75rem">Ergebnis</FluentLabel>
+                <ResultTable Result="_result" />
             </FluentCard>
         }
     </FluentStack>
@@ -251,6 +259,10 @@ else
         // Saved queries are re-executed on open, never restored from a
         // cached result, so the tile always reflects current data.
         await RunAsync();
+
+        // Reopening a saved query should look like the moment it was
+        // saved, chart included.
+        await ShowChartAsync();
     }
 
     private async Task OnQuestionKeyDownAsync(KeyboardEventArgs args)
@@ -286,10 +298,19 @@ else
             _interpretation = plan.Interpretation;
             _title = _question.Length > 80 ? _question[..80] : _question;
 
+            // A new question is a new query, even if a saved one was on
+            // screen a moment ago. Without this the next save would
+            // overwrite that saved query, and the next preview would
+            // overwrite its Metabase card.
+            _savedQueryId = null;
+            _metabaseCardId = null;
+
             // A generated query is only useful once it has an answer
             // attached, so run it straight away.
             _chartType = ChartTypeSelector.Suggest(_query);
             await RunAsync();
+
+            await ShowChartAsync();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -298,6 +319,32 @@ else
         finally
         {
             _planning = false;
+        }
+    }
+
+    /// <summary>
+    /// Publishes the Metabase preview for a query that came from a
+    /// question, so asking one produces a chart without a second click.
+    /// </summary>
+    /// <remarks>
+    /// The render pass is not optional: <c>ChartPanel</c> only exists once
+    /// <c>_result</c> is set, so <c>_chartPanel</c> is still null at the
+    /// point this is reached. <c>StateHasChanged</c> plus yielding lets
+    /// Blazor create the component before it is used.
+    /// </remarks>
+    private async Task ShowChartAsync()
+    {
+        if (_result is null)
+        {
+            return;
+        }
+
+        StateHasChanged();
+        await Task.Yield();
+
+        if (_chartPanel is not null)
+        {
+            await _chartPanel.EnsurePreviewAsync();
         }
     }
 

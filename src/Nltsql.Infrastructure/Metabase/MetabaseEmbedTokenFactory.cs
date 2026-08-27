@@ -48,11 +48,18 @@ public sealed class MetabaseEmbedTokenFactory(IOptions<MetabaseOptions> options,
     }
 
     /// <summary>Builds the iframe URL for a question, chrome switched off.</summary>
+    /// <remarks>
+    /// The frame is made transparent with <c>background=false</c> rather
+    /// than the older <c>theme=transparent</c>. Both are still accepted,
+    /// but background and colour scheme are separate switches now, and
+    /// leaving <c>theme</c> unset is what lets the embedded question follow
+    /// the surrounding page instead of pinning itself to one look.
+    /// </remarks>
     public string CreateQuestionEmbedUrl(int cardId)
     {
         var token = CreateQuestionToken(cardId);
 
         return $"{_options.EffectivePublicUrl.TrimEnd('/')}/embed/question/{token}" +
-               "#bordered=false&titled=false&theme=transparent";
+               "#background=false&bordered=false&titled=false";
     }
 }

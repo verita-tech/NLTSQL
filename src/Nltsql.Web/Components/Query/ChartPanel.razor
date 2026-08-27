@@ -50,6 +50,20 @@
             }
         </FluentStack>
 
+        @if (_preview is not null)
+        {
+            <p class="muted" style="margin:0">
+                In Metabase lässt sich die Frage über <em>„Explore results“</em> weiterfiltern und
+                anschließend dort auf ein Metabase-Dashboard legen. Die Kennzahlen bleiben dabei die
+                aus dem Modell, weil die Frage über <code>MEASURE()</code> gegen die semantische
+                Schicht läuft und nicht gegen die Datenbank.
+                <br />
+                Zwei Einschränkungen: In der Vorschau unten ist bewusst kein Drill-Down möglich —
+                sie ist ein lesendes Embed. Und „Explore results“ filtert das bereits verdichtete
+                Ergebnis; für eine andere Gruppierung ändern Sie die Abfrage hier in der Anwendung.
+            </p>
+        }
+
         @if (_error is not null)
         {
             <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false">@_error</FluentMessageBar>
@@ -116,6 +130,13 @@
     [Parameter]
     public EventCallback<int> CardPublished { get; set; }
 
+    /// <summary>
+    /// Card id of a saved query, so its existing Metabase question is
+    /// updated rather than a second one created beside it.
+    /// </summary>
+    [Parameter]
+    public int? CardId { get; set; }
+
     private ChartPreview? _preview;
     private IReadOnlyList<MetabaseDashboard> _dashboards = [];
     private MetabaseDashboard? _selectedDashboard;
@@ -125,6 +146,45 @@
 
     /// <summary>Reuses the existing card so repeated previews do not litter Metabase.</summary>
     private int? _cardId;
+
+    private int? _lastKnownCardId;
+
+    /// <summary>
+    /// Follows the card id the page supplies, including back to null.
+    /// </summary>
+    /// <remarks>
+    /// Null means "no card yet" — a fresh question. Treating that as
+    /// "keep whatever we had" would point the next publish at the
+    /// previously open saved query's card and overwrite it.
+    /// </remarks>
+    protected override void OnParametersSet()
+    {
+        if (CardId != _lastKnownCardId)
+        {
+            _lastKnownCardId = CardId;
+            _cardId = CardId;
+        }
+    }
+
+    /// <summary>
+    /// Publishes the preview unless one is already on screen.
+    /// </summary>
+    /// <remarks>
+    /// Called by the workspace right after a question has been answered,
+    /// so the chart is simply there instead of hidden behind a button.
+    /// Failures are deliberately left to <see cref="PublishAsync"/>, which
+    /// already turns them into a message beside an otherwise intact page —
+    /// an unreachable Metabase must not cost the user their result table.
+    /// </remarks>
+    public async Task EnsurePreviewAsync()
+    {
+        if (_preview is not null || !ChartGateway.IsAvailable)
+        {
+            return;
+        }
+
+        await PublishAsync();
+    }
 
     private async Task OnChartTypeChangedAsync(ChartType chartType)
     {

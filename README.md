@@ -25,7 +25,7 @@ flowchart TB
         Store[("Gespeicherte Abfragen<br/>und Dashboards")]
     end
 
-    Planner["Claude<br/>(strukturierte Ausgabe)"]
+    Planner["Ollama<br/>lokales Modell, strukturierte Ausgabe"]
 
     subgraph Semantic["Cube · semantische Schicht"]
         Views["Views: fertigung, stillstaende"]
@@ -90,7 +90,9 @@ Deshalb liegt die Fachlichkeit in `infra/cube/model/` und nirgends sonst:
 |---|---|
 | Kein SQL aus der Oberfläche | Es gibt keine Methode, die SQL entgegennimmt. Alles ist eine `SemanticQuery` über katalogisierte Felder. |
 | LLM-Ausgabe | Auf ein JSON-Schema beschränkt und anschließend gegen das *live* geladene Modell validiert. Unbekannte Felder werden abgelehnt, nicht ausgeführt. |
-| Mandantentrennung | Der Server signiert pro Anfrage ein kurzlebiges JWT mit dem Security-Context. Cube hängt in `queryRewrite` den Filter an — *nach* dem Parsen, also nicht entfernbar. |
+| Datenhoheit | Das Sprachmodell läuft lokal. Frage und Feldkatalog verlassen den Rechner nicht. |
+| Mandantentrennung, App-Pfad | Der Server signiert pro Anfrage ein kurzlebiges JWT mit dem Security-Context. Cube hängt in `queryRewrite` den Filter an — *nach* dem Parsen, also nicht entfernbar. |
+| Mandantentrennung, Metabase-Pfad | SQL-API-Sitzungen bekommen ihren Security-Context aus `checkSqlAuth` in `cube.js`. Derselbe `queryRewrite` greift. Einschränkung: Metabase meldet sich als *ein* statischer Benutzer an, also gilt dort *ein* Mandant. |
 | Datenbankzugriff | Cube verbindet sich mit einer reinen Lese-Rolle (`cube_reader`). |
 | Metabase-Vorschau | Static Embedding mit serverseitig signiertem Token. Der Browser hält keine Metabase-Session. |
 | CSV-Download | Kurzlebiges, mandantengebundenes Ticket statt Abfrage in der URL. |
@@ -105,7 +107,9 @@ zu ersetzen ist — alles dahinter benutzt bereits diese Abstraktion.
 
 * Docker und Docker Compose
 * .NET SDK 9.0 (nur, wenn die App außerhalb von Compose laufen soll)
-* Optional ein Anthropic-API-Key für die Frageeingabe
+* Für die Frageeingabe: Ollama, entweder als Container aus diesem Compose-
+  Stack oder bereits auf dem Rechner laufend. Das Standardmodell braucht
+  rund 10 GB RAM oder VRAM; ohne Ollama bleibt alles andere nutzbar.
 
 ---
 
@@ -182,10 +186,36 @@ Die App liegt dann auf <http://localhost:8080>, Metabase auf
 
 ### 5. Frageeingabe aktivieren (optional)
 
-`ANTHROPIC_API_KEY` in `.env` setzen (bzw. `Planner:ApiKey` per
-User-Secrets). Ohne Key bleibt die Plattform vollständig benutzbar — nur
-das Frage-Feld ist ausgeblendet, der Abfrage-Editor kann alles, was die
-Frageeingabe auch erzeugen könnte.
+Die Frageeingabe läuft gegen ein **lokales** Modell. Weder die Frage noch
+der aus Ihrem semantischen Modell erzeugte Feldkatalog verlässt dabei den
+Rechner — bei einer fachspezifischen Domäne ist genau dieser Katalog das
+Geschäftsvokabular.
+
+Entweder als Container:
+
+```bash
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull qwen2.5:14b-instruct
+```
+
+Oder gegen ein Ollama auf dem Host — dann in `.env`:
+
+```
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+und einmalig `ollama pull qwen2.5:14b-instruct`.
+
+Das Modell ist über `OLLAMA_MODEL` austauschbar. Kleiner geht:
+`qwen2.5:7b-instruct` (rund 5 GB) — die Schema-Treue sinkt, die
+Reparaturrunde greift dann häufiger. Wächst das semantische Modell, muss
+`Planner:ContextTokens` mitwachsen: Ollama kürzt einen zu langen Prompt
+stillschweigend, und ein gekürzter Katalog führt zu Plänen, die Felder
+nennen, die das Modell nie gesehen hat.
+
+Mit `PLANNER_ENABLED=false` bleibt die Plattform vollständig benutzbar —
+nur das Frage-Feld ist ausgeblendet, der Abfrage-Editor kann alles, was
+die Frageeingabe auch erzeugen könnte.
 
 ---
 
@@ -197,12 +227,22 @@ Frageeingabe auch erzeugen könnte.
   korrigierbar, bevor jemand der Zahl vertraut.
 * **Abfragen bauen.** Datenbereich, Kennzahlen, Merkmale, Zeitraum,
   Filter, Sortierung, Zeilenlimit.
-* **Ergebnis ansehen.** Tabelle mit fachlichen Titeln, Prozentwerten und
-  deutscher Zahlenformatierung; Hinweis, wenn ein Limit gegriffen hat.
-* **Diagramm.** Metabase erzeugt die Vorschau, eingebettet in der Seite.
-  Der Diagrammtyp wird aus der Form der Abfrage vorgeschlagen.
-* **In Metabase weiterarbeiten.** Frage öffnen oder direkt auf ein
-  Metabase-Dashboard legen.
+* **Diagramm zuerst.** Auf eine Frage hin erscheint unmittelbar der
+  eingebettete Metabase-Frame — ohne zweiten Klick. Der Diagrammtyp wird
+  aus der Form der Abfrage vorgeschlagen.
+* **Ergebnis ansehen.** Unter dem Diagramm die Tabelle mit fachlichen
+  Titeln, Prozentwerten und deutscher Zahlenformatierung; Hinweis, wenn ein
+  Limit gegriffen hat. Sie ist zugleich die Anzeige, die ohne
+  konfiguriertes Metabase funktioniert.
+* **In Metabase weiterarbeiten.** „In Metabase öffnen“ öffnet die Frage im
+  neuen Tab. Dort führt **„Explore results“** zum Weiterfiltern, und von da
+  aus lässt sie sich auf ein Metabase-Dashboard legen — alternativ direkt
+  aus der Anwendung heraus. Weil die Frage über `MEASURE()` gegen Cube
+  läuft, bleiben die Kennzahlen dabei die aus dem Modell.
+  Zwei Grenzen dieses Wegs, damit sie nicht überraschen: der eingebettete
+  Frame ist bewusst lesend (kein Drill-Down), und „Explore results“ filtert
+  das bereits verdichtete Ergebnis — eine andere Gruppierung entsteht durch
+  Ändern der Abfrage in der Anwendung, nicht in Metabase.
 * **Speichern.** Gespeichert wird die *Abfrage*, nicht das Ergebnis. Beim
   Öffnen läuft sie erneut — ein Dashboard zeigt damit immer den aktuellen
   Stand unter den aktuellen Definitionen.
@@ -275,6 +315,10 @@ Prototyps sprengen würde:
 
 * **Keine Authentifizierung.** Mandant und Datenbereich kommen aus der
   Konfiguration. Ersatzpunkt ist `ITenantContext`.
+* **Ein Mandant auf dem Metabase-Pfad.** Metabase verbindet sich mit einem
+  statischen SQL-Benutzer, dessen Mandant `CUBEJS_SQL_TENANT_ID` festlegt.
+  Für echten Mehrmandantenbetrieb braucht es einen SQL-Benutzer je Mandant
+  plus `canSwitchSqlUser`; die Filterlogik selbst bliebe unverändert.
 * **`EnsureCreated` statt Migrationen.** Für einen geteilten Betrieb auf
   `MigrateAsync` umstellen und eine erste Migration erzeugen.
 * **SQLite als Anwendungsspeicher.** Trägt Prototyp-Last; für
@@ -285,12 +329,32 @@ Prototyps sprengen würde:
 * **Pre-Aggregations sind definiert, aber nicht eingeplant.** Für große
   Datenmengen einen Refresh-Worker konfigurieren.
 
-Ehrlichkeitshinweis zur Verifikation: .NET-Build und Tests (71) laufen
-nachweislich durch, die Anwendung startet und alle Seiten rendern, und
-das Warehouse-SQL wurde gegen ein echtes PostgreSQL 16 eingespielt —
-inklusive Prüfung, dass zwei Durchläufe byte-identische Daten erzeugen. Cube und Metabase konnten in der
-Entwicklungsumgebung nicht gestartet werden (kein Netzzugriff auf die
-Images), daher sind die Cube- und Metabase-Aufrufe anhand der
-dokumentierten API implementiert und über Unit-Tests der
-Datenabbildung abgesichert, aber nicht gegen laufende Instanzen erprobt.
-Beim ersten Start beider Dienste ist mit kleineren Anpassungen zu rechnen.
+## Ehrlichkeitshinweis zur Verifikation
+
+**Nachweislich geprüft:** .NET-Build (Warnungen sind Fehler) und 112
+Unit-Tests laufen durch. Die Zugriffslogik in `infra/cube/cube.js` —
+`checkSqlAuth` und `queryRewrite` — ist über `infra/cube/cube.test.js`
+mit 10 Fällen abgedeckt und läuft in der CI mit. Das Warehouse-SQL wurde
+gegen ein echtes PostgreSQL 16 eingespielt, inklusive Prüfung auf
+byte-identische Daten über zwei Durchläufe.
+
+**Nicht erprobt:** Cube, Metabase und Ollama sind in der
+Entwicklungsumgebung nie gelaufen — die Container-Images ließen sich nicht
+laden, und Ollamas Modell-Registry war ebenfalls nicht erreichbar.
+
+Was an ihre Stelle getreten ist:
+
+* Die **Metabase-Aufrufe** wurden gegen den Quelltext der eingesetzten
+  Version v0.63.15 geschrieben — gegen die Endpunkt-Schemata selbst, nicht
+  aus dem Gedächtnis. Das hat unter anderem einen Fehler aufgedeckt, den
+  ein Blick in die Doku nicht gezeigt hätte: `GET /api/search` weist
+  `limit` ohne `offset` mit HTTP 400 ab, die Dashboard-Liste wäre also beim
+  ersten Aufruf gescheitert.
+* Der **Ollama-Pfad** ist über einen nachgebildeten HTTP-Handler abgedeckt
+  (Erfolg, eingezäuntes JSON, „nicht beantwortbar“, Reparaturrunde,
+  fehlendes Modell, nicht erreichbarer Dienst). Das prüft den Vertrag, die
+  Fehlerbehandlung und die Verdrahtung — **nicht** die Antwortqualität von
+  `qwen2.5:14b-instruct`.
+
+Beim ersten echten Start ist deshalb mit Nacharbeit zu rechnen, am ehesten
+am Prompt für das lokale Modell und an einzelnen Metabase-Payloads.
